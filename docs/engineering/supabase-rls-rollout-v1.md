@@ -9,7 +9,6 @@ server-side `service_role` integration.
 
 - Enable RLS on `public.profiles`
 - Enable RLS on `public.garments`
-- Enable RLS on `storage.objects`
 - Add `profiles.auth_user_id` as the future bridge to `auth.uid()`
 - Add authenticated-user policies for profile, garment, and storage access
 
@@ -29,6 +28,7 @@ Run this migration after the initial schema migration:
 
 - Current production code still uses `SUPABASE_SERVICE_ROLE_KEY` on the server.
 - Per Supabase behavior, `service_role` bypasses RLS.
+- `storage.objects` is managed by Supabase. Do not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`; create bucket-scoped policies only.
 - That means this rollout is a security baseline for future authenticated
   browser access, while remaining non-breaking for the current MVP.
 
