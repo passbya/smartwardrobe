@@ -1,0 +1,203 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f5efe5;
+  --background-soft: #fbf7f1;
+  --surface: rgba(255, 251, 245, 0.9);
+  --surface-strong: #fffaf2;
+  --foreground: #1f1a17;
+  --muted: #6d6259;
+  --line: rgba(71, 52, 34, 0.12);
+  --accent: #8f5b33;
+  --accent-strong: #5f381a;
+  --success: #285743;
+  --danger: #8b3522;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-background-soft: var(--background-soft);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.72), transparent 26%),
+    radial-gradient(circle at bottom right, rgba(206, 173, 137, 0.18), transparent 30%),
+    linear-gradient(180deg, #ece3d6 0%, #f6f0e6 32%, #f3ecdf 100%);
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body), sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+main {
+  min-width: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+input[type="file"] {
+  padding: 0.7rem 0.95rem;
+}
+
+input[type="file"]::file-selector-button {
+  margin-right: 0.9rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(143, 91, 51, 0.12);
+  padding: 0.6rem 0.95rem;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgba(143, 91, 51, 0.34);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(143, 91, 51, 0.18);
+}
+
+.display-font {
+  font-family: var(--font-display), serif;
+}
+
+.surface-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(14px);
+}
+
+.field-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.field-input {
+  min-height: 2.875rem;
+  width: 100%;
+  border-radius: 1rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 252, 247, 0.94);
+  padding: 0.75rem 0.95rem;
+  color: var(--foreground);
+  transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease,
+    transform 180ms ease;
+}
+
+.field-input:hover {
+  background: rgba(255, 252, 247, 0.98);
+}
+
+.field-input:focus {
+  outline: none;
+  border-color: rgba(143, 91, 51, 0.42);
+  box-shadow: 0 0 0 4px rgba(143, 91, 51, 0.08);
+  background: #fffdf9;
+}
+
+.field-input::placeholder {
+  color: #8a7f77;
+}
+
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+  padding: 0.9rem 1.35rem;
+  color: #fff9f2;
+  font-weight: 700;
+  transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease,
+    filter 180ms ease;
+  box-shadow: 0 16px 40px rgba(95, 56, 26, 0.22);
+}
+
+.primary-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.02);
+}
+
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 251, 245, 0.72);
+  padding: 0.9rem 1.35rem;
+  color: var(--foreground);
+  font-weight: 700;
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease,
+    transform 180ms ease;
+}
+
+.secondary-button:hover {
+  background: rgba(255, 251, 245, 0.95);
+  border-color: rgba(143, 91, 51, 0.2);
+  transform: translateY(-1px);
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(143, 91, 51, 0.16);
+  background: rgba(255, 250, 242, 0.8);
+  padding: 0.4rem 0.7rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
