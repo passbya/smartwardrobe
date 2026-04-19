@@ -390,8 +390,9 @@ export function OutfitBuilderForm({
                           value={garment.id}
                           checked={checked}
                           onChange={(event) => {
+                            const isChecked = event.currentTarget.checked;
                             setAccessoryGarmentIds((current) =>
-                              event.currentTarget.checked
+                              isChecked
                                 ? [...current, garment.id]
                                 : current.filter((value) => value !== garment.id),
                             );

@@ -21,6 +21,26 @@ export type GarmentInput = {
   notes?: string;
 };
 
+export type GarmentBatchInput = {
+  subcategory: string;
+  color?: string;
+  season?: string;
+  brand?: string;
+  notes?: string;
+  files: File[];
+};
+
+export type GarmentCreateRequest = {
+  garmentId: string;
+  input: GarmentInput;
+  imageUrl: string;
+};
+
+export type BatchImportResult = {
+  createdIds: string[];
+  createdCount: number;
+};
+
 export type GarmentRecord = {
   id: string;
   user_id: string;

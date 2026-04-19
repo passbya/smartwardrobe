@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { deleteOutfitAction, updateOutfitAction } from "@/app/actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { OutfitCollage, getOutfitDisplayItems } from "@/components/outfit-collage";
 import { OutfitBuilderForm } from "@/components/outfit-builder-form";
 import { PageHeader } from "@/components/page-header";
 import { StatusBanner } from "@/components/status-banner";
@@ -60,6 +61,7 @@ export default async function OutfitDetailPage({
   const garments = await listGarments(session.userId);
   const resolvedOutfit = resolveOutfitRecord(outfit, garments);
   const summary = getOutfitSummary(resolvedOutfit);
+  const displayItems = getOutfitDisplayItems(resolvedOutfit);
   const statusBanner = getStatusBanner((await searchParams) ?? {});
 
   return (
@@ -67,7 +69,7 @@ export default async function OutfitDetailPage({
       <PageHeader
         eyebrow="Outfit Detail"
         title={resolvedOutfit.name}
-        description={`当前搭配已选择 ${summary.length} 个槽位内容。你可以继续编辑名称、替换主体单品，或删除这套搭配。`}
+        description={`当前搭配已选择 ${summary.length} 个槽位内容。整套展示区会同时展开主体、鞋子和配饰，便于你边看边调整。`}
         actions={
           <div className="flex flex-wrap gap-3">
             <Link href="/outfits" className="secondary-button">
@@ -90,30 +92,76 @@ export default async function OutfitDetailPage({
         <StatusBanner tone={statusBanner.tone} message={statusBanner.message} />
       ) : null}
 
-      <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+      <section className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
         <div className="surface-panel rounded-[2rem] p-6 sm:p-7">
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-accent-soft">
-            Current Summary
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {summary.map((item) => (
-              <span key={item} className="status-chip">
-                {item}
-              </span>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-accent-soft">
+                Outfit View
+              </p>
+              <h2 className="mt-3 text-2xl font-semibold text-foreground-strong sm:text-3xl">
+                整套搭配总览
+              </h2>
+            </div>
+            <span className="rounded-full border border-[rgba(173,203,255,0.16)] bg-[rgba(7,16,31,0.42)] px-4 py-2 text-sm font-semibold text-accent-soft">
+              已展开 {displayItems.length} 件
+            </span>
+          </div>
+
+          <div className="mt-6">
+            <OutfitCollage
+              outfit={resolvedOutfit}
+              variant="detail"
+              testId="outfit-detail-display"
+            />
+          </div>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            {displayItems.map((item) => (
+              <div
+                key={item.key}
+                className="rounded-[1.35rem] border border-line/70 bg-[rgba(7,16,31,0.42)] p-4"
+              >
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-accent-soft">
+                  {item.label}
+                </p>
+                <p className="mt-2 text-base font-semibold text-foreground-strong">
+                  {item.garment.name}
+                </p>
+                <p className="mt-1 text-sm text-muted">
+                  {[item.garment.color, item.garment.season].filter(Boolean).join(" · ") ||
+                    item.garment.subcategory}
+                </p>
+              </div>
             ))}
           </div>
-          <p className="mt-5 text-sm leading-7 text-muted">
-            搭配封面会优先使用连衣裙、上装、外套、鞋子或首个配饰的现有图片。修改槽位后，封面也会随之更新。
-          </p>
         </div>
 
-        <div className="surface-panel rounded-[2rem] p-6 sm:p-7">
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-accent-soft">
-            Edit Outfit
-          </p>
-          <p className="mt-3 text-sm leading-7 text-muted">
-            手动改名后，系统仍会继续重新计算自动名称，但不会覆盖你保存下来的自定义名称。
-          </p>
+        <div className="grid gap-6">
+          <div className="surface-panel rounded-[2rem] p-6 sm:p-7">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-accent-soft">
+              Current Summary
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {summary.map((item) => (
+                <span key={item} className="status-chip">
+                  {item}
+                </span>
+              ))}
+            </div>
+            <p className="mt-5 text-sm leading-7 text-muted">
+              详情页现在会同时展示整套搭配，不再只依赖单件封面。修改槽位后，左侧总览也会一起更新。
+            </p>
+          </div>
+
+          <div className="surface-panel rounded-[2rem] p-6 sm:p-7">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-accent-soft">
+              Edit Outfit
+            </p>
+            <p className="mt-3 text-sm leading-7 text-muted">
+              手动改名后，系统仍会继续重新计算自动名称，但不会覆盖你保存下来的自定义名称。
+            </p>
+          </div>
         </div>
       </section>
 

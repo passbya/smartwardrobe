@@ -19,6 +19,8 @@ import {
   toUserSession,
 } from "@/lib/preset-identities";
 import type {
+  BatchImportResult,
+  GarmentCreateRequest,
   GarmentInput,
   GarmentRecord,
   OutfitInput,
@@ -293,6 +295,33 @@ function createOutfitRecordFromPayload(
   };
 }
 
+function buildGarmentRecord(
+  userId: string,
+  garmentId: string,
+  input: GarmentInput,
+  imageUrl: string,
+  timestamp: string,
+): GarmentRecord {
+  const ruleMatch = classifyGarmentByRules(input.subcategory);
+
+  return {
+    id: garmentId,
+    user_id: userId,
+    image_url: imageUrl,
+    name: input.name,
+    category: ruleMatch?.category ?? "",
+    subcategory: input.subcategory,
+    color: input.color ?? "",
+    season: input.season || ruleMatch?.season || "",
+    brand: input.brand ?? "",
+    notes: input.notes ?? "",
+    source: "manual_import",
+    classification_source: "rule",
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
+
 export function createLocalRepository(): SmartWardrobeRepository {
   return {
     async getOrCreatePresetProfile(slug: string): Promise<UserSession> {
@@ -388,25 +417,8 @@ export function createLocalRepository(): SmartWardrobeRepository {
     ) {
       try {
         const garments = await getAllGarments();
-        const ruleMatch = classifyGarmentByRules(input.subcategory);
         const now = new Date().toISOString();
-
-        const garment: GarmentRecord = {
-          id: garmentId,
-          user_id: userId,
-          image_url: imageUrl,
-          name: input.name,
-          category: ruleMatch?.category ?? "",
-          subcategory: input.subcategory,
-          color: input.color ?? "",
-          season: input.season || ruleMatch?.season || "",
-          brand: input.brand ?? "",
-          notes: input.notes ?? "",
-          source: "manual_import",
-          classification_source: "rule",
-          created_at: now,
-          updated_at: now,
-        };
+        const garment = buildGarmentRecord(userId, garmentId, input, imageUrl, now);
 
         garments.push(garment);
         await writeJsonFile(getGarmentsPath(), garments);
@@ -414,6 +426,35 @@ export function createLocalRepository(): SmartWardrobeRepository {
         return garment;
       } catch (error) {
         throw createRepositoryError(`create garment ${garmentId}`, error);
+      }
+    },
+
+    async createGarmentRecords(
+      userId: string,
+      garmentRequests: GarmentCreateRequest[],
+    ): Promise<BatchImportResult> {
+      try {
+        const garments = await getAllGarments();
+        const timestamp = new Date().toISOString();
+        const createdGarments = garmentRequests.map((request) =>
+          buildGarmentRecord(
+            userId,
+            request.garmentId,
+            request.input,
+            request.imageUrl,
+            timestamp,
+          ),
+        );
+
+        garments.push(...createdGarments);
+        await writeJsonFile(getGarmentsPath(), garments);
+
+        return {
+          createdIds: createdGarments.map((garment) => garment.id),
+          createdCount: createdGarments.length,
+        };
+      } catch (error) {
+        throw createRepositoryError("create garments", error);
       }
     },
 

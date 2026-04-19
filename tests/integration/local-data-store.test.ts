@@ -285,6 +285,84 @@ describe("local data store flow", () => {
     expect(await novaUpload.text()).toBe("nova-bytes");
   });
 
+  it("creates multiple garment records for a same-subcategory batch import with shared fields", async () => {
+    const imageAUrl = await dataStore.saveUpload(
+      lunaSession.userId,
+      "garment-batch-001",
+      createUploadFile("Batch Shirt 1.png", "batch-a"),
+    );
+    const imageBUrl = await dataStore.saveUpload(
+      lunaSession.userId,
+      "garment-batch-002",
+      createUploadFile("Batch Shirt 2.png", "batch-b"),
+    );
+
+    const result = await dataStore.createGarmentRecords(lunaSession.userId, [
+      {
+        garmentId: "garment-batch-001",
+        imageUrl: imageAUrl,
+        input: {
+          name: "鐧借‖琛? 1",
+          subcategory: "shirt",
+          color: "white",
+          season: "winter",
+          brand: "Moon Label",
+          notes: "shared-batch-note",
+        },
+      },
+      {
+        garmentId: "garment-batch-002",
+        imageUrl: imageBUrl,
+        input: {
+          name: "鐧借‖琛? 2",
+          subcategory: "shirt",
+          color: "white",
+          season: "winter",
+          brand: "Moon Label",
+          notes: "shared-batch-note",
+        },
+      },
+    ]);
+
+    expect(result).toEqual({
+      createdIds: ["garment-batch-001", "garment-batch-002"],
+      createdCount: 2,
+    });
+
+    const garments = await dataStore.listGarments(lunaSession.userId);
+    expect(garments.map((garment) => garment.id)).toEqual([
+      "garment-batch-001",
+      "garment-batch-002",
+    ]);
+    expect(garments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "garment-batch-001",
+          name: "鐧借‖琛? 1",
+          subcategory: "shirt",
+          category: "tops",
+          color: "white",
+          season: "winter",
+          brand: "Moon Label",
+          notes: "shared-batch-note",
+          image_url: imageAUrl,
+        }),
+        expect.objectContaining({
+          id: "garment-batch-002",
+          name: "鐧借‖琛? 2",
+          subcategory: "shirt",
+          category: "tops",
+          color: "white",
+          season: "winter",
+          brand: "Moon Label",
+          notes: "shared-batch-note",
+          image_url: imageBUrl,
+        }),
+      ]),
+    );
+    expect(await dataStore.listGarments(novaSession.userId)).toEqual([]);
+  });
+
   it("rejects unsafe upload paths", async () => {
     const response = await uploadRoute.GET(new Request("http://localhost"), {
       params: Promise.resolve({

@@ -1,4 +1,9 @@
-import type { GarmentInput, OutfitInput } from "@/lib/types";
+import type {
+  BatchImportResult,
+  GarmentCreateRequest,
+  GarmentInput,
+  OutfitInput,
+} from "@/lib/types";
 import { getRepository } from "@/lib/data-repository";
 import type { GarmentUpdates } from "@/lib/data-repository";
 
@@ -29,6 +34,13 @@ export async function createGarmentRecord(
   imageUrl: string,
 ) {
   return getRepository().createGarmentRecord(userId, garmentId, input, imageUrl);
+}
+
+export async function createGarmentRecords(
+  userId: string,
+  garments: GarmentCreateRequest[],
+): Promise<BatchImportResult> {
+  return getRepository().createGarmentRecords(userId, garments);
 }
 
 export async function updateGarmentRecord(

@@ -325,6 +325,77 @@ describe("Supabase repository contract", () => {
     );
   });
 
+  it("creates multiple garments through the bulk REST contract for batch import", async () => {
+    fetchMock.mockResolvedValueOnce(
+      Response.json(
+        [{ id: "garment-101" }, { id: "garment-102" }],
+        { status: 200 },
+      ),
+    );
+
+    const repository = repositoryModule.createSupabaseRepository();
+    const result = await repository.createGarmentRecords(lunaSession.userId, [
+      {
+        garmentId: "garment-101",
+        imageUrl: `/api/uploads/${lunaSession.userId}/garment-101-shirt-1.png`,
+        input: {
+          name: "鐧借‖琛? 1",
+          subcategory: "shirt",
+          color: "white",
+          season: "winter",
+          brand: "Moon Label",
+          notes: "batch-one",
+        },
+      },
+      {
+        garmentId: "garment-102",
+        imageUrl: `/api/uploads/${lunaSession.userId}/garment-102-shirt-2.png`,
+        input: {
+          name: "鐧借‖琛? 2",
+          subcategory: "shirt",
+          color: "white",
+          season: "winter",
+          brand: "Moon Label",
+          notes: "batch-two",
+        },
+      },
+    ]);
+
+    expect(result).toEqual({
+      createdIds: ["garment-101", "garment-102"],
+      createdCount: 2,
+    });
+
+    const createInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const createHeaders = new Headers(createInit.headers);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://supabase.example.test/rest/v1/garments?select=id",
+    );
+    expect(createInit.method).toBe("POST");
+    expect(createHeaders.get("Content-Type")).toBe("application/json");
+    expect(createHeaders.get("Prefer")).toBe("return=representation");
+    expect(JSON.parse(createInit.body as string)).toEqual([
+      expect.objectContaining({
+        id: "garment-101",
+        user_id: lunaSession.userId,
+        name: "鐧借‖琛? 1",
+        subcategory: "shirt",
+        color: "white",
+        season: "winter",
+        image_url: `/api/uploads/${lunaSession.userId}/garment-101-shirt-1.png`,
+      }),
+      expect.objectContaining({
+        id: "garment-102",
+        user_id: lunaSession.userId,
+        name: "鐧借‖琛? 2",
+        subcategory: "shirt",
+        color: "white",
+        season: "winter",
+        image_url: `/api/uploads/${lunaSession.userId}/garment-102-shirt-2.png`,
+      }),
+    ]);
+  });
+
   it("returns null when a Supabase lookup misses", async () => {
     fetchMock.mockResolvedValueOnce(new Response("", { status: 404 }));
 

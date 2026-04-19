@@ -25,6 +25,39 @@ async function importGarment(page, appUrl, uploadPath, garment) {
   await page.waitForLoadState("networkidle");
 }
 
+async function importGarmentBatch(page, appUrl, uploadPaths, batch) {
+  await page.goto(`${appUrl}/import`, { waitUntil: "networkidle" });
+  await page.locator('[data-testid="import-mode-batch"]').click();
+  await page.locator('[data-testid="import-batch-form"]').waitFor();
+  await page.locator('[data-testid="batch-image-input"]').setInputFiles(uploadPaths);
+  await page
+    .locator('[data-testid="import-batch-form"] select[name="subcategory"]')
+    .selectOption(batch.subcategory);
+  await page
+    .locator('[data-testid="import-batch-form"] select[name="color"]')
+    .selectOption(batch.color);
+  await page
+    .locator('[data-testid="import-batch-form"] select[name="season"]')
+    .selectOption(batch.season);
+  await page
+    .locator('[data-testid="import-batch-form"] input[name="brand"]')
+    .fill(batch.brand);
+  await page
+    .locator('[data-testid="import-batch-form"] textarea[name="notes"]')
+    .fill(batch.notes);
+  await page.locator('[data-testid="batch-import-submit"]').click();
+  await page.waitForURL(/\/import\?mode=batch&createdCount=\d+/, { timeout: 60000 });
+  await page.waitForLoadState("networkidle");
+
+  const createdCount = (
+    await page.locator('[data-testid="batch-import-created-count"]').textContent()
+  )?.trim();
+
+  if (createdCount !== String(uploadPaths.length)) {
+    throw new Error(`Unexpected batch import count: ${createdCount}`);
+  }
+}
+
 async function locatorExists(locator) {
   return (await locator.count()) > 0;
 }
@@ -151,6 +184,28 @@ async function createOutfit(page, appUrl, outfit) {
   await topSelect.selectOption({ label: outfit.topName });
   await bottomSelect.selectOption({ label: outfit.bottomName });
 
+  if (outfit.outerwearName) {
+    const outerwearSelect = await firstExistingLocator(page, [
+      'select[name="outerwearGarmentId"]',
+    ]);
+
+    if (!outerwearSelect) {
+      throw new Error("Unable to find the outerwear selector");
+    }
+
+    await outerwearSelect.selectOption({ label: outfit.outerwearName });
+  }
+
+  if (outfit.accessoryName) {
+    const accessoryCard = page.locator("label").filter({ hasText: outfit.accessoryName });
+
+    if (!(await locatorExists(accessoryCard))) {
+      throw new Error(`Unable to find accessory option for ${outfit.accessoryName}`);
+    }
+
+    await accessoryCard.first().click();
+  }
+
   const generatedName = await firstExistingLocator(page, [
     '[data-testid="outfit-generated-name"]',
     '[data-testid="generated-outfit-name"]',
@@ -218,6 +273,25 @@ async function deleteCurrentOutfit(page) {
   await page.waitForLoadState("networkidle");
 }
 
+async function collectGarmentCards(page) {
+  const cards = page.locator("article");
+  const count = await cards.count();
+  const results = [];
+
+  for (let index = 0; index < count; index += 1) {
+    const card = cards.nth(index);
+    const title = ((await card.locator("h2").first().textContent()) ?? "").trim();
+    const href = await card.locator('a[href*="/garment/"]').first().getAttribute("href");
+    const garmentId = href?.split("/garment/")[1]?.split("?")[0] ?? "";
+
+    if (title && garmentId) {
+      results.push({ title, garmentId });
+    }
+  }
+
+  return results;
+}
+
 async function deleteGarmentById(page, appUrl, garmentId) {
   if (!garmentId) {
     return false;
@@ -253,7 +327,12 @@ async function deleteGarmentById(page, appUrl, garmentId) {
 async function main() {
   const appUrl = process.env.APP_URL || "http://localhost:3000";
   const token = Date.now().toString(36);
+  const batchToken = Math.random().toString(36).slice(2, 10);
   const uploadPath = path.join(os.tmpdir(), `smartwardrobe-upload-${token}.png`);
+  const batchUploadPaths = [
+    path.join(os.tmpdir(), `smartwardrobe-batch-a-${token}.png`),
+    path.join(os.tmpdir(), `smartwardrobe-batch-b-${token}.png`),
+  ];
   const firstGarment = {
     name: `Nebula Shirt ${token}`,
     subcategory: "shirt",
@@ -282,8 +361,25 @@ async function main() {
     brand: `Iris Brand ${token}`,
     notes: `iris-note-${token}`,
   };
+  const accessoryGarment = {
+    name: `Star Hat ${token}`,
+    subcategory: "hat",
+    color: "white",
+    brand: `Star Brand ${token}`,
+    notes: `star-note-${token}`,
+  };
+  const batchImport = {
+    subcategory: "shirt",
+    color: "white",
+    season: "winter",
+    brand: `Batch Brand ${batchToken}`,
+    notes: `batch-note-${batchToken}`,
+  };
 
   fs.writeFileSync(uploadPath, Buffer.from(SMOKE_UPLOAD_PNG_BASE64, "base64"));
+  for (const batchUploadPath of batchUploadPaths) {
+    fs.writeFileSync(batchUploadPath, Buffer.from(SMOKE_UPLOAD_PNG_BASE64, "base64"));
+  }
 
   const browser = await chromium.launch({ headless: true });
   const primaryContext = await browser.newContext();
@@ -294,6 +390,9 @@ async function main() {
   let secondGarmentId = "";
   let thirdGarmentId = "";
   let fourthGarmentId = "";
+  let accessoryGarmentId = "";
+  let batchGarmentIds = [];
+  let batchGarmentNames = [];
 
   try {
     const loginMode = await loginWithIdentity(page, appUrl, PRESET_IDENTITIES[0]);
@@ -322,20 +421,48 @@ async function main() {
     secondGarmentId = /\/garment\/([^?]+)/.exec(page.url())?.[1] ?? "";
     await importGarment(page, appUrl, uploadPath, thirdGarment);
     thirdGarmentId = /\/garment\/([^?]+)/.exec(page.url())?.[1] ?? "";
+    await importGarment(page, appUrl, uploadPath, accessoryGarment);
+    accessoryGarmentId = /\/garment\/([^?]+)/.exec(page.url())?.[1] ?? "";
 
     const outfitManualName = `Moonlight Commute ${token}`;
     const { outfitId } = await createOutfit(page, appUrl, {
       topName: firstGarment.name,
       bottomName: thirdGarment.name,
+      outerwearName: secondGarment.name,
+      accessoryName: accessoryGarment.name,
       topToken: "Nebula Shirt",
       bottomToken: "Nova Skirt",
       manualName: outfitManualName,
     });
 
+    await page.locator('[data-testid="outfit-detail-display"]').waitFor();
+    if ((await page.locator('[data-testid="outfit-detail-display"] > div').count()) < 4) {
+      throw new Error("Outfit detail display did not render the full outfit collage");
+    }
+
     await page.locator(`input[name="name"][value="${outfitManualName}"]`).waitFor();
     await page.goto(`${appUrl}/outfits`, { waitUntil: "networkidle" });
     await page.locator("article").filter({ hasText: outfitManualName }).first().waitFor();
+    if ((await page.locator(`[data-testid="outfit-card-collage-${outfitId}"] > div`).count()) < 4) {
+      throw new Error("Outfit list card did not render the collage tiles");
+    }
     await expectRecommendedPlaceholder(page);
+
+    await importGarmentBatch(page, appUrl, batchUploadPaths, batchImport);
+    await page.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
+    await applySearch(page, batchImport.brand);
+    const batchCards = await collectGarmentCards(page);
+    batchGarmentIds = batchCards.map((card) => card.garmentId);
+    batchGarmentNames = batchCards.map((card) => card.title);
+    if (batchCards.length !== 2) {
+      throw new Error(`Expected 2 batch-imported garments, received ${batchCards.length}`);
+    }
+    if (
+      !batchGarmentNames.some((name) => name.includes("1")) ||
+      !batchGarmentNames.some((name) => name.includes("2"))
+    ) {
+      throw new Error(`Batch import names were not sequential: ${batchGarmentNames.join(", ")}`);
+    }
 
     await page.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
 
@@ -404,6 +531,13 @@ async function main() {
         fourthGarment.name,
         "Secondary identity garment leaked into the primary identity wardrobe",
       );
+      for (const batchGarmentName of batchGarmentNames) {
+        await assertWardrobeDoesNotShow(
+          secondaryPage,
+          batchGarmentName,
+          "Primary identity batch garment leaked into the secondary identity wardrobe",
+        );
+      }
     }
 
     await page.goto(`${appUrl}/outfits/${outfitId}`, { waitUntil: "networkidle" });
@@ -414,7 +548,6 @@ async function main() {
     await deleteGarmentById(page, appUrl, firstGarmentId);
 
     await assertWardrobeDoesNotShow(page, firstGarment.name, "Deleted garment is still visible in wardrobe");
-    await page.getByText(secondGarment.name).waitFor();
 
     await page.goto(`${appUrl}/garment/${firstGarmentId}`, { waitUntil: "networkidle" });
     if (await locatorExists(page.locator('[data-testid="garment-edit-form"]'))) {
@@ -423,6 +556,18 @@ async function main() {
 
     console.log("BROWSER_SMOKE_OK");
   } finally {
+    try {
+      for (const batchGarmentId of batchGarmentIds) {
+        await deleteGarmentById(page, appUrl, batchGarmentId);
+      }
+    } catch {}
+
+    try {
+      if (accessoryGarmentId) {
+        await deleteGarmentById(page, appUrl, accessoryGarmentId);
+      }
+    } catch {}
+
     try {
       if (thirdGarmentId) {
         await deleteGarmentById(page, appUrl, thirdGarmentId);
@@ -458,6 +603,11 @@ async function main() {
     try {
       fs.unlinkSync(uploadPath);
     } catch {}
+    for (const batchUploadPath of batchUploadPaths) {
+      try {
+        fs.unlinkSync(batchUploadPath);
+      } catch {}
+    }
   }
 }
 

@@ -209,6 +209,66 @@ describe("data store repository", () => {
     });
   });
 
+  it("supports repository-level batch garment creation with independent ids and image urls", async () => {
+    const firstImageUrl = await dataStore.saveUpload(
+      lunaSession.userId,
+      "garment-batch-001",
+      createUploadFile("Batch One.png"),
+    );
+    const secondImageUrl = await dataStore.saveUpload(
+      lunaSession.userId,
+      "garment-batch-002",
+      createUploadFile("Batch Two.png"),
+    );
+
+    const result = await dataStore.createGarmentRecords(lunaSession.userId, [
+      {
+        garmentId: "garment-batch-001",
+        imageUrl: firstImageUrl,
+        input: {
+          name: "鍚岀被涓? 1",
+          subcategory: "mocked-subcategory",
+          color: "blue",
+          season: "winter",
+          brand: "Moon Label",
+          notes: "batch-one",
+        },
+      },
+      {
+        garmentId: "garment-batch-002",
+        imageUrl: secondImageUrl,
+        input: {
+          name: "鍚岀被涓? 2",
+          subcategory: "mocked-subcategory",
+          color: "blue",
+          season: "winter",
+          brand: "Moon Label",
+          notes: "batch-two",
+        },
+      },
+    ]);
+
+    expect(result).toEqual({
+      createdIds: ["garment-batch-001", "garment-batch-002"],
+      createdCount: 2,
+    });
+    expect(await dataStore.getGarmentById(lunaSession.userId, "garment-batch-001")).toMatchObject({
+      id: "garment-batch-001",
+      image_url: firstImageUrl,
+      category: "tops",
+      subcategory: "mocked-subcategory",
+      season: "winter",
+    });
+    expect(await dataStore.getGarmentById(lunaSession.userId, "garment-batch-002")).toMatchObject({
+      id: "garment-batch-002",
+      image_url: secondImageUrl,
+      category: "tops",
+      subcategory: "mocked-subcategory",
+      season: "winter",
+    });
+    expect(await dataStore.getGarmentById(novaSession.userId, "garment-batch-001")).toBeNull();
+  });
+
   it("creates and updates manual outfits for the current preset identity", async () => {
     const outfitDataStore = dataStore as OutfitEnabledDataStore;
     const uploadFile = createUploadFile("Outfit Photo.png");

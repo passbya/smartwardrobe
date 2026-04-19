@@ -9,6 +9,8 @@ import {
   toUserSession,
 } from "@/lib/preset-identities";
 import type {
+  BatchImportResult,
+  GarmentCreateRequest,
   GarmentInput,
   GarmentRecord,
   OutfitInput,
@@ -169,6 +171,33 @@ function toOutfitInsertPayload(
     accessory_garment_ids: payload.accessoryGarmentIds,
     created_at: createdAt,
     updated_at: updatedAt,
+  };
+}
+
+function toGarmentInsertPayload(
+  userId: string,
+  garmentId: string,
+  input: GarmentInput,
+  imageUrl: string,
+  timestamp: string,
+) {
+  const ruleMatch = classifyGarmentByRules(input.subcategory);
+
+  return {
+    id: garmentId,
+    user_id: userId,
+    image_url: imageUrl,
+    name: input.name,
+    category: ruleMatch?.category ?? "",
+    subcategory: input.subcategory,
+    color: input.color ?? "",
+    season: input.season || ruleMatch?.season || "",
+    brand: input.brand ?? "",
+    notes: input.notes ?? "",
+    source: "manual_import",
+    classification_source: "rule",
+    created_at: timestamp,
+    updated_at: timestamp,
   };
 }
 
@@ -422,7 +451,6 @@ export function createSupabaseRepository(): SmartWardrobeRepository {
     ) {
       try {
         const config = getSupabaseConfig();
-        const ruleMatch = classifyGarmentByRules(input.subcategory);
         const now = new Date().toISOString();
 
         const rows = await fetchJson<GarmentRow[]>(
@@ -434,28 +462,54 @@ export function createSupabaseRepository(): SmartWardrobeRepository {
               "Content-Type": "application/json",
               Prefer: "return=representation",
             },
-            body: JSON.stringify({
-              id: garmentId,
-              user_id: userId,
-              image_url: imageUrl,
-              name: input.name,
-              category: ruleMatch?.category ?? "",
-              subcategory: input.subcategory,
-              color: input.color ?? "",
-              season: input.season || ruleMatch?.season || "",
-              brand: input.brand ?? "",
-              notes: input.notes ?? "",
-              source: "manual_import",
-              classification_source: "rule",
-              created_at: now,
-              updated_at: now,
-            }),
+            body: JSON.stringify(
+              toGarmentInsertPayload(userId, garmentId, input, imageUrl, now),
+            ),
           },
         );
 
         return toGarmentRecord(rows[0]);
       } catch (error) {
         throw createRepositoryError(`create garment ${garmentId}`, error);
+      }
+    },
+
+    async createGarmentRecords(
+      userId: string,
+      garmentRequests: GarmentCreateRequest[],
+    ): Promise<BatchImportResult> {
+      try {
+        const config = getSupabaseConfig();
+        const timestamp = new Date().toISOString();
+        const payload = garmentRequests.map((request) =>
+          toGarmentInsertPayload(
+            userId,
+            request.garmentId,
+            request.input,
+            request.imageUrl,
+            timestamp,
+          ),
+        );
+
+        const rows = await fetchJson<GarmentRow[]>(
+          config,
+          "/rest/v1/garments?select=id",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Prefer: "return=representation",
+            },
+            body: JSON.stringify(payload),
+          },
+        );
+
+        return {
+          createdIds: rows.map((row) => row.id),
+          createdCount: rows.length,
+        };
+      } catch (error) {
+        throw createRepositoryError("create garments", error);
       }
     },
 

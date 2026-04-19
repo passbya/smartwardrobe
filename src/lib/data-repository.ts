@@ -1,6 +1,8 @@
 import { createLocalRepository } from "@/lib/local-repository";
 import { createSupabaseRepository } from "@/lib/supabase-repository";
 import type {
+  BatchImportResult,
+  GarmentCreateRequest,
   GarmentInput,
   GarmentRecord,
   OutfitInput,
@@ -25,6 +27,10 @@ export interface SmartWardrobeRepository {
     input: GarmentInput,
     imageUrl: string,
   ): Promise<GarmentRecord>;
+  createGarmentRecords(
+    userId: string,
+    garments: GarmentCreateRequest[],
+  ): Promise<BatchImportResult>;
   updateGarmentRecord(
     userId: string,
     garmentId: string,
@@ -206,6 +212,11 @@ function createResilientSupabaseRepository(): SmartWardrobeRepository {
     createGarmentRecord(userId: string, garmentId: string, input: GarmentInput, imageUrl: string) {
       return runWithFallback("all", (candidate) =>
         candidate.createGarmentRecord(userId, garmentId, input, imageUrl),
+      );
+    },
+    createGarmentRecords(userId: string, garments: GarmentCreateRequest[]) {
+      return runWithFallback("all", (candidate) =>
+        candidate.createGarmentRecords(userId, garments),
       );
     },
     updateGarmentRecord(userId: string, garmentId: string, updates: GarmentUpdates) {
