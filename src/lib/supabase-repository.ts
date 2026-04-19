@@ -1,7 +1,12 @@
 import { classifyGarmentByRules } from "@/lib/classification";
 import type { SmartWardrobeRepository } from "@/lib/data-repository";
-import type { DemoSession, GarmentInput, GarmentRecord } from "@/lib/types";
 import {
+  getPresetIdentityBySlug,
+  toUserSession,
+} from "@/lib/preset-identities";
+import type { GarmentInput, GarmentRecord, UserSession } from "@/lib/types";
+import {
+  extractUploadReference,
   getUploadObjectKey,
   sanitizeUploadFileName,
 } from "@/lib/storage-paths";
@@ -161,45 +166,86 @@ async function getBinary(
   return new Uint8Array(await response.arrayBuffer());
 }
 
+async function deleteStorageObject(config: SupabaseConfig, imageUrl: string) {
+  const reference = extractUploadReference(imageUrl);
+
+  if (!reference) {
+    return;
+  }
+
+  const objectKey = getUploadObjectKey(reference.userId, reference.fileName);
+  const response = await fetch(
+    `${config.url}/storage/v1/object/${config.bucket}/${encodeStoragePath(objectKey)}`,
+    {
+      method: "DELETE",
+      headers: createSupabaseHeaders(config),
+    },
+  );
+
+  if (response.status === 404) {
+    return;
+  }
+
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new Error(
+      `Supabase storage delete failed with ${response.status}${details ? `: ${details}` : ""}`,
+    );
+  }
+}
+
 export function createSupabaseRepository(): SmartWardrobeRepository {
   return {
-    async getOrCreateDemoProfile(): Promise<DemoSession> {
+    async getOrCreatePresetProfile(slug: string): Promise<UserSession> {
       try {
+        const identity = getPresetIdentityBySlug(slug);
+
+        if (!identity) {
+          throw new Error(`Unknown preset identity: ${slug}`);
+        }
+
         const config = getSupabaseConfig();
-        const existing = await fetchMaybeJson<ProfileRow[]>(config, "/rest/v1/profiles?is_demo=eq.true&select=id,display_name,is_demo&order=created_at.asc&limit=1", {
-          method: "GET",
-        });
+        const existing = await fetchMaybeJson<ProfileRow[]>(
+          config,
+          `/rest/v1/profiles?id=eq.${encodeURIComponent(identity.userId)}&select=id,display_name,is_demo&limit=1`,
+          {
+            method: "GET",
+          },
+        );
 
         const current = existing?.[0];
         if (current) {
-          return {
-            userId: current.id,
-            displayName: current.display_name || "Demo Stylist",
-            isDemo: Boolean(current.is_demo),
-          };
+          return toUserSession({
+            ...identity,
+            displayName: current.display_name || identity.displayName,
+          });
         }
 
-        const created = await fetchJson<ProfileRow[]>(config, "/rest/v1/profiles?select=id,display_name,is_demo", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Prefer: "return=representation",
+        const created = await fetchJson<ProfileRow[]>(
+          config,
+          "/rest/v1/profiles?select=id,display_name,is_demo",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Prefer: "return=representation",
+            },
+            body: JSON.stringify({
+              id: identity.userId,
+              display_name: identity.displayName,
+              is_demo: false,
+            }),
           },
-          body: JSON.stringify({
-            display_name: "Demo Stylist",
-            is_demo: true,
-          }),
-        });
+        );
 
         const profile = created[0];
 
-        return {
-          userId: profile.id,
-          displayName: profile.display_name || "Demo Stylist",
-          isDemo: Boolean(profile.is_demo),
-        };
+        return toUserSession({
+          ...identity,
+          displayName: profile.display_name || identity.displayName,
+        });
       } catch (error) {
-        throw createRepositoryError("create or load the demo profile", error);
+        throw createRepositoryError(`create or load preset profile ${slug}`, error);
       }
     },
 
@@ -360,6 +406,40 @@ export function createSupabaseRepository(): SmartWardrobeRepository {
         return rows?.[0] ? toGarmentRecord(rows[0]) : null;
       } catch (error) {
         throw createRepositoryError(`update garment ${garmentId}`, error);
+      }
+    },
+
+    async deleteGarmentRecord(userId: string, garmentId: string) {
+      try {
+        const config = getSupabaseConfig();
+        const current = await fetchMaybeJson<GarmentRow[]>(
+          config,
+          `/rest/v1/garments?id=eq.${encodeURIComponent(garmentId)}&user_id=eq.${encodeURIComponent(userId)}&select=*&limit=1`,
+          { method: "GET" },
+        );
+
+        const garment = current?.[0];
+
+        if (!garment) {
+          return null;
+        }
+
+        await deleteStorageObject(config, garment.image_url);
+
+        const deleted = await fetchMaybeJson<GarmentRow[]>(
+          config,
+          `/rest/v1/garments?id=eq.${encodeURIComponent(garmentId)}&user_id=eq.${encodeURIComponent(userId)}&select=*`,
+          {
+            method: "DELETE",
+            headers: {
+              Prefer: "return=representation",
+            },
+          },
+        );
+
+        return deleted?.[0] ? toGarmentRecord(deleted[0]) : toGarmentRecord(garment);
+      } catch (error) {
+        throw createRepositoryError(`delete garment ${garmentId}`, error);
       }
     },
   };

@@ -1,7 +1,15 @@
-export type DemoSession = {
+export type UserSession = {
   userId: string;
   displayName: string;
-  isDemo: boolean;
+  slug: string;
+};
+
+export type PresetIdentity = {
+  userId: string;
+  displayName: string;
+  slug: string;
+  description: string;
+  themeKey?: string;
 };
 
 export type GarmentInput = {

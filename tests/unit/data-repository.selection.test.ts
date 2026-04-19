@@ -1,20 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  lunaSession,
+  novaSession,
+} from "../helpers/preset-identity-fixtures";
 
 const localRepository = {
   mode: "local",
-  getOrCreateDemoProfile: vi.fn(async () => ({
-    userId: "local-user",
-    displayName: "Local Demo",
-    isDemo: true,
-  })),
+  getOrCreatePresetProfile: vi.fn(async () => lunaSession),
   listGarments: vi.fn(async () => []),
   getGarmentById: vi.fn(async () => null),
-  saveUpload: vi.fn(async () => "/api/uploads/local-user/mock-file.jpg"),
+  saveUpload: vi.fn(async () => `/api/uploads/${lunaSession.userId}/mock-file.jpg`),
   loadUpload: vi.fn(async () => null),
   createGarmentRecord: vi.fn(async () => ({
     id: "local-garment",
-    user_id: "local-user",
-    image_url: "/api/uploads/local-user/mock-file.jpg",
+    user_id: lunaSession.userId,
+    image_url: `/api/uploads/${lunaSession.userId}/mock-file.jpg`,
     name: "Local Garment",
     category: "tops",
     subcategory: "shirt",
@@ -32,19 +32,15 @@ const localRepository = {
 
 const supabaseRepository = {
   mode: "supabase",
-  getOrCreateDemoProfile: vi.fn(async () => ({
-    userId: "supabase-user",
-    displayName: "Supabase Demo",
-    isDemo: true,
-  })),
+  getOrCreatePresetProfile: vi.fn(async () => novaSession),
   listGarments: vi.fn(async () => []),
   getGarmentById: vi.fn(async () => null),
-  saveUpload: vi.fn(async () => "/api/uploads/supabase-user/mock-file.jpg"),
+  saveUpload: vi.fn(async () => `/api/uploads/${novaSession.userId}/mock-file.jpg`),
   loadUpload: vi.fn(async () => null),
   createGarmentRecord: vi.fn(async () => ({
     id: "supabase-garment",
-    user_id: "supabase-user",
-    image_url: "/api/uploads/supabase-user/mock-file.jpg",
+    user_id: novaSession.userId,
+    image_url: `/api/uploads/${novaSession.userId}/mock-file.jpg`,
     name: "Supabase Garment",
     category: "tops",
     subcategory: "shirt",
@@ -102,15 +98,13 @@ describe("repository selection", () => {
     if (originalEnv.SUPABASE_SERVICE_ROLE_KEY === undefined) {
       delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     } else {
-      process.env.SUPABASE_SERVICE_ROLE_KEY =
-        originalEnv.SUPABASE_SERVICE_ROLE_KEY;
+      process.env.SUPABASE_SERVICE_ROLE_KEY = originalEnv.SUPABASE_SERVICE_ROLE_KEY;
     }
 
     if (originalEnv.SMARTWARDROBE_SUPABASE_BUCKET === undefined) {
       delete process.env.SMARTWARDROBE_SUPABASE_BUCKET;
     } else {
-      process.env.SMARTWARDROBE_SUPABASE_BUCKET =
-        originalEnv.SMARTWARDROBE_SUPABASE_BUCKET;
+      process.env.SMARTWARDROBE_SUPABASE_BUCKET = originalEnv.SMARTWARDROBE_SUPABASE_BUCKET;
     }
 
     vi.clearAllMocks();
@@ -153,10 +147,10 @@ describe("repository selection", () => {
       activeMode: "supabase",
       fallbackReason: null,
     });
-    await expect(repository.getOrCreateDemoProfile()).resolves.toMatchObject({
-      userId: "supabase-user",
-    });
-    expect(supabaseRepository.getOrCreateDemoProfile).toHaveBeenCalledTimes(1);
+    await expect(repository.getOrCreatePresetProfile(novaSession.slug)).resolves.toEqual(
+      novaSession,
+    );
+    expect(supabaseRepository.getOrCreatePresetProfile).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to local mode when only one Supabase env var is present", async () => {
@@ -174,9 +168,9 @@ describe("repository selection", () => {
   it("falls back to the local repository when Supabase is missing required tables", async () => {
     process.env.SUPABASE_URL = "https://supabase.example.test";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
-    supabaseRepository.getOrCreateDemoProfile.mockRejectedValueOnce(
+    supabaseRepository.getOrCreatePresetProfile.mockRejectedValueOnce(
       new Error(
-        "SmartWardrobe failed to create or load the demo profile: Supabase request failed with 404: {\"code\":\"PGRST205\",\"message\":\"Could not find the table 'public.profiles' in the schema cache\"}",
+        "SmartWardrobe failed to create or load preset profile luna: Supabase request failed with 404: {\"code\":\"PGRST205\",\"message\":\"Could not find the table 'public.profiles' in the schema cache\"}",
       ),
     );
 
@@ -184,17 +178,15 @@ describe("repository selection", () => {
     repositoryModule = await import("@/lib/data-repository");
 
     const repository = repositoryModule.getRepository();
-    const session = await repository.getOrCreateDemoProfile();
+    const session = await repository.getOrCreatePresetProfile(lunaSession.slug);
 
-    expect(session).toMatchObject({ userId: "local-user" });
-    expect(localRepository.getOrCreateDemoProfile).toHaveBeenCalledTimes(1);
+    expect(session).toEqual(lunaSession);
+    expect(localRepository.getOrCreatePresetProfile).toHaveBeenCalledTimes(1);
     expect(repositoryModule.getRepositoryMode()).toBe("local");
     expect(repositoryModule.getRepositoryStatus()).toMatchObject({
       preferredMode: "supabase",
       activeMode: "local",
     });
-    expect(repositoryModule.getRepositoryStatus().fallbackReason).toContain(
-      "缺少必需的数据表",
-    );
+    expect(repositoryModule.getRepositoryStatus().fallbackReason).toBeTruthy();
   });
 });

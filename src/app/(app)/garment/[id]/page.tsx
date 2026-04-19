@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
-import { updateGarmentAction } from "@/app/actions";
+import { deleteGarmentAction, updateGarmentAction } from "@/app/actions";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { StatusBanner } from "@/components/status-banner";
@@ -15,7 +16,7 @@ import {
   SUBCATEGORY_OPTIONS,
 } from "@/lib/catalog";
 import { getGarmentById } from "@/lib/data-store";
-import { requireDemoSession } from "@/lib/session";
+import { requireSession } from "@/lib/session";
 
 type GarmentDetailPageProps = {
   params: Promise<{
@@ -36,25 +37,33 @@ function getStatusMessage(params: {
   if (params.created === "1") {
     return {
       tone: "success" as const,
-      message: "服装导入成功，系统已经完成默认分类。你现在可以继续人工修正。",
+      message: "衣物导入成功，系统已经先完成默认分类。你现在可以继续做人工确认。",
     };
   }
 
   if (params.saved === "1") {
     return {
       tone: "success" as const,
-      message: "服装信息已更新，列表和详情都会同步显示最新结果。",
+      message: "衣物信息已更新，列表页和详情页都会显示最新结果。",
     };
   }
 
   if (params.error === "not-found") {
     return {
       tone: "error" as const,
-      message: "没有找到要更新的服装记录，请返回衣橱重新选择。",
+      message: "没有找到要更新的衣物记录，请返回衣橱重新选择。",
     };
   }
 
   return null;
+}
+
+function getSourceLabel(source: string) {
+  if (source === "manual_import") {
+    return "手动导入";
+  }
+
+  return source;
 }
 
 export default async function GarmentDetailPage({
@@ -63,7 +72,7 @@ export default async function GarmentDetailPage({
 }: GarmentDetailPageProps) {
   const { id } = await params;
   const resolvedSearchParams = (await searchParams) ?? {};
-  const session = await requireDemoSession();
+  const session = await requireSession();
   const garment = await getGarmentById(session.userId, id);
   const status = getStatusMessage(resolvedSearchParams);
 
@@ -72,8 +81,8 @@ export default async function GarmentDetailPage({
       <div className="flex w-full flex-col gap-8">
         <PageHeader
           eyebrow="Garment"
-          title="记录不存在"
-          description="这件服装可能还没有创建，或者已经从当前演示衣橱中移除。"
+          title="这条记录不存在"
+          description="这件衣物可能尚未创建，或者已经从当前身份的衣橱中移除。"
           actions={
             <Link href="/wardrobe" className="secondary-button">
               返回衣橱
@@ -81,8 +90,8 @@ export default async function GarmentDetailPage({
           }
         />
         <EmptyState
-          title="没有找到这件服装"
-          description="先返回衣橱确认记录是否存在，或者重新导入一件新的服装继续测试流程。"
+          title="没有找到这件衣物"
+          description="请先回到衣橱确认这条记录是否仍然存在，或者重新导入一件新衣物继续当前流程。"
           actionHref="/wardrobe"
           actionLabel="回到衣橱"
         />
@@ -91,6 +100,7 @@ export default async function GarmentDetailPage({
   }
 
   const submitAction = updateGarmentAction.bind(null, garment.id);
+  const removeAction = deleteGarmentAction.bind(null, garment.id);
   const hasManualOverride = garment.classification_source === "manual";
 
   return (
@@ -98,7 +108,7 @@ export default async function GarmentDetailPage({
       <PageHeader
         eyebrow="Garment"
         title={garment.name}
-        description="这里展示当前服装的默认分类和人工修正入口。保存后，手动填写的内容会覆盖系统默认结果，并同步到列表。"
+        description="左侧保留当前图片和系统分类结果，右侧用于确认最终品类、颜色、季节与备注。保存后列表会同步更新。"
         actions={
           <Link href="/wardrobe" className="secondary-button">
             返回衣橱
@@ -109,33 +119,45 @@ export default async function GarmentDetailPage({
       {status ? <StatusBanner tone={status.tone} message={status.message} /> : null}
 
       <div className="grid gap-6 xl:grid-cols-[0.94fr_1.06fr]">
-        <section className="surface-panel overflow-hidden rounded-[2rem]">
-          <div className="relative aspect-[4/5] bg-[#ebe3d7]">
-            <Image src={garment.image_url} alt={garment.name} fill className="object-cover" />
-            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,248,240,0.02)_0%,rgba(36,24,14,0.1)_45%,rgba(24,17,12,0.5)_100%)]" />
-            <div className="absolute inset-x-5 top-5 flex flex-wrap gap-2">
-              <span className="status-chip bg-white/90 text-accent-strong">
-                {hasManualOverride ? "手动修正已保存" : "系统默认分类"}
+        <section className="surface-panel overflow-hidden rounded-[2rem] p-0">
+          <div className="relative aspect-[4/5] overflow-hidden bg-[linear-gradient(180deg,rgba(20,35,84,0.9)_0%,rgba(8,13,29,0.98)_100%)]">
+            <Image
+              src={garment.image_url}
+              alt={garment.name}
+              fill
+              sizes="(min-width: 1280px) 42vw, 100vw"
+              className="object-cover"
+            />
+            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(3,8,22,0.06)_0%,rgba(7,13,31,0.24)_44%,rgba(4,9,22,0.78)_100%)]" />
+            <div className="absolute left-5 top-5 flex flex-wrap gap-2">
+              <span className="status-chip bg-white/14 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.14)]">
+                {hasManualOverride ? "已人工确认" : "系统默认分类"}
               </span>
-              <span className="status-chip bg-white/80 text-accent-strong">
+              <span className="status-chip bg-white/10 text-[rgba(223,234,255,0.94)] shadow-[0_0_0_1px_rgba(255,255,255,0.1)]">
                 {getCategoryLabel(garment.category)}
               </span>
             </div>
+            <div className="absolute inset-x-5 bottom-5 rounded-[1.5rem] border border-white/10 bg-[rgba(5,10,24,0.48)] p-4 shadow-[0_20px_50px_rgba(2,6,18,0.36)] backdrop-blur-xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[rgba(198,218,255,0.7)]">
+                当前摘要
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="status-chip bg-white/8 text-white/88">
+                  {getSubcategoryLabel(garment.subcategory)}
+                </span>
+                <span className="status-chip bg-white/8 text-white/88">
+                  {hasManualOverride ? "人工修正" : "自动分类"}
+                </span>
+                <span className="status-chip bg-white/8 text-white/88">
+                  {getSourceLabel(garment.source)}
+                </span>
+              </div>
+            </div>
           </div>
 
-          <div className="flex flex-col gap-5 p-6">
-            <div className="flex flex-wrap gap-3">
-              <span className="status-chip">{getSubcategoryLabel(garment.subcategory)}</span>
-              <span className="status-chip">
-                {hasManualOverride ? "人工修正" : "自动分类"}
-              </span>
-              <span className="status-chip">
-                {garment.source === "upload" ? "图片导入" : garment.source}
-              </span>
-            </div>
-
+          <div className="grid gap-4 p-6">
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-[1.35rem] border border-line/70 bg-[rgba(255,251,245,0.68)] p-4">
+              <div className="rounded-[1.45rem] border border-line bg-[rgba(14,23,52,0.52)] p-4 shadow-[0_14px_34px_rgba(5,11,29,0.18)]">
                 <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted">
                   颜色
                 </p>
@@ -143,7 +165,7 @@ export default async function GarmentDetailPage({
                   {garment.color ? getColorLabel(garment.color) : "未设置"}
                 </p>
               </div>
-              <div className="rounded-[1.35rem] border border-line/70 bg-[rgba(255,251,245,0.68)] p-4">
+              <div className="rounded-[1.45rem] border border-line bg-[rgba(14,23,52,0.52)] p-4 shadow-[0_14px_34px_rgba(5,11,29,0.18)]">
                 <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted">
                   季节
                 </p>
@@ -151,7 +173,7 @@ export default async function GarmentDetailPage({
                   {garment.season ? getSeasonLabel(garment.season) : "未设置"}
                 </p>
               </div>
-              <div className="rounded-[1.35rem] border border-line/70 bg-[rgba(255,251,245,0.68)] p-4">
+              <div className="rounded-[1.45rem] border border-line bg-[rgba(14,23,52,0.52)] p-4 shadow-[0_14px_34px_rgba(5,11,29,0.18)]">
                 <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted">
                   品牌
                 </p>
@@ -159,40 +181,95 @@ export default async function GarmentDetailPage({
                   {garment.brand || "未设置"}
                 </p>
               </div>
-              <div className="rounded-[1.35rem] border border-line/70 bg-[rgba(255,251,245,0.68)] p-4">
+              <div className="rounded-[1.45rem] border border-line bg-[rgba(14,23,52,0.52)] p-4 shadow-[0_14px_34px_rgba(5,11,29,0.18)]">
                 <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted">
                   来源
                 </p>
-                <p className="mt-2 text-base font-semibold text-foreground">{garment.source}</p>
+                <p className="mt-2 text-base font-semibold text-foreground">
+                  {getSourceLabel(garment.source)}
+                </p>
               </div>
             </div>
 
-            <div className="rounded-[1.35rem] border border-line/70 bg-[rgba(255,251,245,0.68)] p-4">
+            <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+              <div className="rounded-[1.55rem] border border-line bg-[linear-gradient(180deg,rgba(16,28,63,0.74)_0%,rgba(10,18,42,0.74)_100%)] p-5 shadow-[0_20px_48px_rgba(5,11,29,0.22)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[rgba(189,212,255,0.72)]">
+                  系统结果
+                </p>
+                <div className="mt-4 grid gap-3 text-sm leading-6 text-muted">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.22em] text-muted">品类</p>
+                    <p className="mt-1 font-semibold text-foreground">
+                      {getCategoryLabel(garment.category)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.22em] text-muted">子类</p>
+                    <p className="mt-1 font-semibold text-foreground">
+                      {getSubcategoryLabel(garment.subcategory)}
+                    </p>
+                  </div>
+                  <p>
+                    当前结果来自规则分类。若你在右侧修改并保存，人工填写的值会成为最终结果。
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-[1.55rem] border border-[rgba(108,168,255,0.28)] bg-[linear-gradient(180deg,rgba(18,35,78,0.8)_0%,rgba(12,24,56,0.78)_100%)] p-5 shadow-[0_0_0_1px_rgba(129,182,255,0.08),0_20px_48px_rgba(4,12,33,0.28)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[rgba(205,226,255,0.82)]">
+                  人工最终值
+                </p>
+                <div className="mt-4 grid gap-3 text-sm leading-6 text-[rgba(217,230,255,0.82)]">
+                  <p>右侧保存后的内容会覆盖默认分类，并在衣橱列表中同步显示。</p>
+                  <p>建议重点确认品类、子类、颜色和季节，这些字段会直接影响筛选结果。</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[1.45rem] border border-line bg-[rgba(14,23,52,0.52)] p-4 shadow-[0_14px_34px_rgba(5,11,29,0.18)]">
               <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted">
                 备注
               </p>
               <p className="mt-2 text-sm leading-7 text-muted">
-                {garment.notes || "暂无备注。你可以在右侧补充面料、场景或搭配偏好。"}
+                {garment.notes || "暂时还没有备注。你可以在右侧补充面料、适合场景或搭配偏好。"}
               </p>
             </div>
           </div>
         </section>
 
         <section className="surface-panel rounded-[2rem] p-6 sm:p-7">
-          <div className="mb-5 space-y-1">
-            <p className="text-sm font-semibold text-accent-strong">人工修正</p>
-            <p className="text-sm leading-6 text-muted">
-              这里填写的内容会覆盖系统默认结果，适合快速确认最终分类。保存后可直接返回列表继续浏览。
-            </p>
+          <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-accent-soft">人工修正</p>
+              <h2 className="display-font text-3xl text-foreground-strong">
+                在这里确认最终分类结果
+              </h2>
+              <p className="max-w-2xl text-sm leading-7 text-muted">
+                右侧填写的内容会覆盖系统默认结果。保存后无需重新导入，列表页会直接显示这次修正。
+              </p>
+            </div>
+
+            <div className="rounded-[1.5rem] border border-line bg-[rgba(14,23,52,0.54)] p-4 shadow-[0_18px_40px_rgba(4,11,30,0.22)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted">
+                当前状态
+              </p>
+              <p className="mt-2 text-sm font-semibold text-foreground">
+                {hasManualOverride ? "已完成人工确认" : "仍使用系统默认结果"}
+              </p>
+            </div>
           </div>
 
-          <form action={submitAction} className="grid gap-5 md:grid-cols-2">
+          <form
+            data-testid="garment-edit-form"
+            action={submitAction}
+            className="grid gap-5 md:grid-cols-2"
+          >
             <label className="field-shell md:col-span-2">
-              <span className="text-sm font-semibold text-muted">服装名称</span>
+              <span className="text-sm font-semibold text-muted">衣物名称</span>
               <input
                 value={garment.name}
                 readOnly
-                className="field-input cursor-not-allowed opacity-70"
+                className="field-input cursor-not-allowed opacity-75"
               />
             </label>
 
@@ -210,7 +287,11 @@ export default async function GarmentDetailPage({
 
             <label className="field-shell">
               <span className="text-sm font-semibold text-muted">子类</span>
-              <select name="subcategory" defaultValue={garment.subcategory} className="field-input">
+              <select
+                name="subcategory"
+                defaultValue={garment.subcategory}
+                className="field-input"
+              >
                 {SUBCATEGORY_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
@@ -261,18 +342,28 @@ export default async function GarmentDetailPage({
                 defaultValue={garment.notes}
                 rows={5}
                 className="field-input min-h-36 resize-y"
-                placeholder="记录面料、穿着场景、搭配偏好等信息。"
+                placeholder="记录面料、适合场景、搭配偏好或保养信息。"
               />
             </label>
 
-            <div className="md:col-span-2 flex flex-wrap gap-3">
-              <button type="submit" className="primary-button">
+            <div className="flex flex-wrap gap-3 md:col-span-2">
+              <button type="submit" className="primary-button glow-ring">
                 保存修正
               </button>
               <Link href="/wardrobe" className="secondary-button">
                 返回列表
               </Link>
             </div>
+          </form>
+
+          <form action={removeAction} className="mt-6">
+            <input type="hidden" name="redirectTo" value="/wardrobe" />
+            <ConfirmSubmitButton
+              className="secondary-button w-full border-[rgba(255,159,177,0.18)] text-danger hover:bg-[rgba(255,159,177,0.08)]"
+              confirmMessage={`确认删除“${garment.name}”吗？这会同时删除对应图片。`}
+            >
+              删除这件衣物
+            </ConfirmSubmitButton>
           </form>
         </section>
       </div>

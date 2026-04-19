@@ -1,4 +1,9 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  lunaIdentity,
+  lunaSession,
+  novaIdentity,
+} from "../helpers/preset-identity-fixtures";
 
 type SupabaseRepositoryModule = typeof import("@/lib/supabase-repository");
 
@@ -34,71 +39,68 @@ describe("Supabase repository contract", () => {
     if (originalEnv.SUPABASE_SERVICE_ROLE_KEY === undefined) {
       delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     } else {
-      process.env.SUPABASE_SERVICE_ROLE_KEY =
-        originalEnv.SUPABASE_SERVICE_ROLE_KEY;
+      process.env.SUPABASE_SERVICE_ROLE_KEY = originalEnv.SUPABASE_SERVICE_ROLE_KEY;
     }
 
     if (originalEnv.SMARTWARDROBE_SUPABASE_BUCKET === undefined) {
       delete process.env.SMARTWARDROBE_SUPABASE_BUCKET;
     } else {
-      process.env.SMARTWARDROBE_SUPABASE_BUCKET =
-        originalEnv.SMARTWARDROBE_SUPABASE_BUCKET;
+      process.env.SMARTWARDROBE_SUPABASE_BUCKET = originalEnv.SMARTWARDROBE_SUPABASE_BUCKET;
     }
 
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
-  it("reads the existing demo profile and normalizes the response", async () => {
+  it("reads the existing stored profile for the requested preset identity session", async () => {
     fetchMock.mockResolvedValueOnce(
       Response.json(
         [
           {
-            id: "demo-profile",
-            display_name: "Demo Stylist",
-            is_demo: true,
+            id: lunaIdentity.userId,
+            display_name: lunaIdentity.displayName,
+            is_demo: false,
           },
         ],
         { status: 200 },
       ),
     );
 
-    const session = await repositoryModule.createSupabaseRepository().getOrCreateDemoProfile();
+    const session = await repositoryModule
+      .createSupabaseRepository()
+      .getOrCreatePresetProfile(lunaIdentity.slug);
 
-    expect(session).toEqual({
-      userId: "demo-profile",
-      displayName: "Demo Stylist",
-      isDemo: true,
-    });
-
+    expect(session).toEqual(lunaSession);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "https://supabase.example.test/rest/v1/profiles?is_demo=eq.true&select=id,display_name,is_demo&order=created_at.asc&limit=1",
+      `https://supabase.example.test/rest/v1/profiles?id=eq.${lunaIdentity.userId}&select=id,display_name,is_demo&limit=1`,
     );
   });
 
-  it("creates a demo profile when none exists and sends the expected payload", async () => {
+  it("creates a stored profile when no preset session profile exists yet", async () => {
     fetchMock
       .mockResolvedValueOnce(Response.json([], { status: 200 }))
       .mockResolvedValueOnce(
         Response.json(
           [
             {
-              id: "new-demo-profile",
-              display_name: null,
-              is_demo: true,
+              id: novaIdentity.userId,
+              display_name: novaIdentity.displayName,
+              is_demo: false,
             },
           ],
           { status: 200 },
         ),
       );
 
-    const session = await repositoryModule.createSupabaseRepository().getOrCreateDemoProfile();
+    const session = await repositoryModule
+      .createSupabaseRepository()
+      .getOrCreatePresetProfile(novaIdentity.slug);
 
     expect(session).toEqual({
-      userId: "new-demo-profile",
-      displayName: "Demo Stylist",
-      isDemo: true,
+      userId: novaIdentity.userId,
+      displayName: novaIdentity.displayName,
+      slug: novaIdentity.slug,
     });
 
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
@@ -114,8 +116,9 @@ describe("Supabase repository contract", () => {
     expect(postHeaders.get("Content-Type")).toBe("application/json");
     expect(postHeaders.get("Prefer")).toBe("return=representation");
     expect(JSON.parse(postInit.body as string)).toEqual({
-      display_name: "Demo Stylist",
-      is_demo: true,
+      id: novaIdentity.userId,
+      display_name: novaIdentity.displayName,
+      is_demo: false,
     });
   });
 
@@ -124,7 +127,7 @@ describe("Supabase repository contract", () => {
 
     const repository = repositoryModule.createSupabaseRepository();
     const uploadUrl = await repository.saveUpload(
-      "demo-user",
+      lunaSession.userId,
       "garment-001",
       {
         name: "Mock Blazer.png",
@@ -136,9 +139,11 @@ describe("Supabase repository contract", () => {
       } as File,
     );
 
-    expect(uploadUrl).toBe("/api/uploads/demo-user/garment-001-mock-blazer.png");
+    expect(uploadUrl).toBe(
+      `/api/uploads/${lunaSession.userId}/garment-001-mock-blazer.png`,
+    );
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "https://supabase.example.test/storage/v1/object/garment-images-test/demo-user/garment-001-mock-blazer.png",
+      `https://supabase.example.test/storage/v1/object/garment-images-test/${lunaSession.userId}/garment-001-mock-blazer.png`,
     );
 
     const uploadInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
@@ -164,13 +169,16 @@ describe("Supabase repository contract", () => {
 
     const repository = repositoryModule.createSupabaseRepository();
 
-    const bytes = await repository.loadUpload("demo-user", "garment-001-mock-blazer.png");
-    const missing = await repository.loadUpload("demo-user", "missing.png");
+    const bytes = await repository.loadUpload(
+      lunaSession.userId,
+      "garment-001-mock-blazer.png",
+    );
+    const missing = await repository.loadUpload(lunaSession.userId, "missing.png");
 
     expect(new TextDecoder().decode(bytes ?? new Uint8Array())).toBe("binary-data");
     expect(missing).toBeNull();
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "https://supabase.example.test/storage/v1/object/authenticated/garment-images-test/demo-user/garment-001-mock-blazer.png",
+      `https://supabase.example.test/storage/v1/object/authenticated/garment-images-test/${lunaSession.userId}/garment-001-mock-blazer.png`,
     );
   });
 
@@ -181,8 +189,8 @@ describe("Supabase repository contract", () => {
           [
             {
               id: "garment-001",
-              user_id: "demo-user",
-              image_url: "/api/uploads/demo-user/garment-001-mock-blazer.png",
+              user_id: lunaSession.userId,
+              image_url: `/api/uploads/${lunaSession.userId}/garment-001-mock-blazer.png`,
               name: "Mock Blazer",
               category: "tops",
               subcategory: "shirt",
@@ -204,14 +212,14 @@ describe("Supabase repository contract", () => {
           [
             {
               id: "garment-001",
-              user_id: "demo-user",
-              image_url: "/api/uploads/demo-user/garment-001-mock-blazer.png",
+              user_id: lunaSession.userId,
+              image_url: `/api/uploads/${lunaSession.userId}/garment-001-mock-blazer.png`,
               name: "Mock Blazer",
               category: "outerwear",
               subcategory: "coat",
               color: "black",
               season: "winter",
-              brand: "Demo Label",
+              brand: "Moon Label",
               notes: "Manually corrected",
               source: "manual_import",
               classification_source: "manual",
@@ -227,14 +235,14 @@ describe("Supabase repository contract", () => {
           [
             {
               id: "garment-001",
-              user_id: "demo-user",
-              image_url: "/api/uploads/demo-user/garment-001-mock-blazer.png",
+              user_id: lunaSession.userId,
+              image_url: `/api/uploads/${lunaSession.userId}/garment-001-mock-blazer.png`,
               name: "Mock Blazer",
               category: "outerwear",
               subcategory: "coat",
               color: "black",
               season: "winter",
-              brand: "Demo Label",
+              brand: "Moon Label",
               notes: "Manually corrected",
               source: "manual_import",
               classification_source: "manual",
@@ -249,7 +257,7 @@ describe("Supabase repository contract", () => {
     const repository = repositoryModule.createSupabaseRepository();
 
     const created = await repository.createGarmentRecord(
-      "demo-user",
+      lunaSession.userId,
       "garment-001",
       {
         name: "Mock Blazer",
@@ -259,7 +267,7 @@ describe("Supabase repository contract", () => {
         brand: "",
         notes: "",
       },
-      "/api/uploads/demo-user/garment-001-mock-blazer.png",
+      `/api/uploads/${lunaSession.userId}/garment-001-mock-blazer.png`,
     );
 
     expect(created).toMatchObject({
@@ -279,12 +287,12 @@ describe("Supabase repository contract", () => {
     expect(createHeaders.get("Content-Type")).toBe("application/json");
     expect(createHeaders.get("Prefer")).toBe("return=representation");
 
-    const update = await repository.updateGarmentRecord("demo-user", "garment-001", {
+    const update = await repository.updateGarmentRecord(lunaSession.userId, "garment-001", {
       category: "outerwear",
       subcategory: "coat",
       color: "black",
       season: "winter",
-      brand: "Demo Label",
+      brand: "Moon Label",
       notes: "Manually corrected",
     });
 
@@ -298,13 +306,13 @@ describe("Supabase repository contract", () => {
     const updateInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
     const updateHeaders = new Headers(updateInit.headers);
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
-      "https://supabase.example.test/rest/v1/garments?id=eq.garment-001&user_id=eq.demo-user&select=*",
+      `https://supabase.example.test/rest/v1/garments?id=eq.garment-001&user_id=eq.${lunaSession.userId}&select=*`,
     );
     expect(updateInit.method).toBe("PATCH");
     expect(updateHeaders.get("Content-Type")).toBe("application/json");
     expect(updateHeaders.get("Prefer")).toBe("return=representation");
 
-    const loaded = await repository.getGarmentById("demo-user", "garment-001");
+    const loaded = await repository.getGarmentById(lunaSession.userId, "garment-001");
     expect(loaded).toMatchObject({
       id: "garment-001",
       category: "outerwear",
@@ -313,7 +321,7 @@ describe("Supabase repository contract", () => {
     });
 
     expect(fetchMock.mock.calls[2]?.[0]).toBe(
-      "https://supabase.example.test/rest/v1/garments?id=eq.garment-001&user_id=eq.demo-user&select=*&limit=1",
+      `https://supabase.example.test/rest/v1/garments?id=eq.garment-001&user_id=eq.${lunaSession.userId}&select=*&limit=1`,
     );
   });
 
@@ -322,6 +330,87 @@ describe("Supabase repository contract", () => {
 
     const repository = repositoryModule.createSupabaseRepository();
 
-    await expect(repository.getGarmentById("demo-user", "missing")).resolves.toBeNull();
+    await expect(repository.getGarmentById(lunaSession.userId, "missing")).resolves.toBeNull();
+  });
+
+  it("deletes a garment row and its storage object", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        Response.json(
+          [
+            {
+              id: "garment-001",
+              user_id: lunaSession.userId,
+              image_url: `/api/uploads/${lunaSession.userId}/garment-001-mock-blazer.png`,
+              name: "Mock Blazer",
+              category: "outerwear",
+              subcategory: "coat",
+              color: "black",
+              season: "winter",
+              brand: "Moon Label",
+              notes: "Manually corrected",
+              source: "manual_import",
+              classification_source: "manual",
+              created_at: "2026-01-01T00:00:00.000Z",
+              updated_at: "2026-01-02T00:00:00.000Z",
+            },
+          ],
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response("", { status: 200 }))
+      .mockResolvedValueOnce(
+        Response.json(
+          [
+            {
+              id: "garment-001",
+              user_id: lunaSession.userId,
+              image_url: `/api/uploads/${lunaSession.userId}/garment-001-mock-blazer.png`,
+              name: "Mock Blazer",
+              category: "outerwear",
+              subcategory: "coat",
+              color: "black",
+              season: "winter",
+              brand: "Moon Label",
+              notes: "Manually corrected",
+              source: "manual_import",
+              classification_source: "manual",
+              created_at: "2026-01-01T00:00:00.000Z",
+              updated_at: "2026-01-02T00:00:00.000Z",
+            },
+          ],
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response("", { status: 404 }));
+
+    const repository = repositoryModule.createSupabaseRepository();
+
+    const deleted = await repository.deleteGarmentRecord(lunaSession.userId, "garment-001");
+
+    expect(deleted).toMatchObject({
+      id: "garment-001",
+      source: "manual_import",
+      classification_source: "manual",
+    });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      `https://supabase.example.test/rest/v1/garments?id=eq.garment-001&user_id=eq.${lunaSession.userId}&select=*&limit=1`,
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      `https://supabase.example.test/storage/v1/object/garment-images-test/${lunaSession.userId}/garment-001-mock-blazer.png`,
+    );
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      method: "DELETE",
+    });
+
+    const deleteInit = fetchMock.mock.calls[2]?.[1] as RequestInit;
+    const deleteHeaders = new Headers(deleteInit.headers);
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      `https://supabase.example.test/rest/v1/garments?id=eq.garment-001&user_id=eq.${lunaSession.userId}&select=*`,
+    );
+    expect(deleteInit.method).toBe("DELETE");
+    expect(deleteHeaders.get("Prefer")).toBe("return=representation");
+
+    await expect(repository.deleteGarmentRecord(lunaSession.userId, "missing")).resolves.toBeNull();
   });
 });

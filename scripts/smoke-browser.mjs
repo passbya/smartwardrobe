@@ -3,9 +3,122 @@ import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 
+const PRESET_IDENTITIES = [
+  { slug: "luna", displayName: "Luna" },
+  { slug: "nova", displayName: "Nova" },
+  { slug: "iris", displayName: "Iris" },
+];
+
+async function importGarment(page, appUrl, uploadPath, garment) {
+  await page.goto(`${appUrl}/import`, { waitUntil: "networkidle" });
+  await page.locator('input[type="file"]').setInputFiles(uploadPath);
+  await page.locator('input[name="name"]').fill(garment.name);
+  await page.locator('select[name="subcategory"]').selectOption(garment.subcategory);
+  await page.locator('select[name="color"]').selectOption(garment.color);
+  await page.locator('input[name="brand"]').fill(garment.brand);
+  await page.locator('textarea[name="notes"]').fill(garment.notes);
+  await page.locator('[data-testid="import-form"] button[type="submit"]').click();
+  await page.waitForURL(/\/garment\//, { timeout: 60000 });
+  await page.waitForLoadState("networkidle");
+}
+
+async function locatorExists(locator) {
+  return (await locator.count()) > 0;
+}
+
+async function loginWithIdentity(page, appUrl, identity) {
+  await page.goto(`${appUrl}/login`, { waitUntil: "networkidle" });
+
+  const presetButton = page.locator(
+    [
+      `[data-testid="preset-identity-${identity.slug}"] button`,
+      `[data-testid="preset-identity-card-${identity.slug}"] button`,
+      `[data-testid="${identity.slug}-identity"] button`,
+      `form:has-text("${identity.displayName}") button`,
+      `button:has-text("${identity.displayName}")`,
+    ].join(", "),
+  );
+
+  if (await locatorExists(presetButton)) {
+    await presetButton.first().click();
+    await page.waitForURL("**/wardrobe", { timeout: 60000 });
+    await page.waitForLoadState("networkidle");
+    return "preset-button";
+  }
+
+  const presetSelect = page.locator(
+    'select[name="identity"], select[name="presetIdentity"], [data-testid="preset-identity-select"]',
+  );
+
+  if (await locatorExists(presetSelect)) {
+    await presetSelect.first().selectOption(identity.slug);
+
+    const submitButton = page.locator(
+      [
+        '[data-testid="preset-login-form"] button[type="submit"]',
+        '[data-testid="preset-session-form"] button[type="submit"]',
+        "form button[type=\"submit\"]",
+      ].join(", "),
+    );
+
+    if (!(await locatorExists(submitButton))) {
+      throw new Error("Found preset identity select input but no submit button");
+    }
+
+    await submitButton.first().click();
+    await page.waitForURL("**/wardrobe", { timeout: 60000 });
+    await page.waitForLoadState("networkidle");
+    return "preset-select";
+  }
+
+  const legacyDemoButton = page.locator('[data-testid="demo-login-form"] button[type="submit"]');
+  if (await locatorExists(legacyDemoButton)) {
+    await legacyDemoButton.click();
+    await page.waitForURL("**/wardrobe", { timeout: 60000 });
+    await page.waitForLoadState("networkidle");
+    return "legacy-demo";
+  }
+
+  throw new Error("Unable to find a supported login flow on /login");
+}
+
+async function assertWardrobeDoesNotShow(page, garmentName, message) {
+  if (await page.getByText(garmentName, { exact: true }).count()) {
+    throw new Error(message);
+  }
+}
+
+async function applySearch(page, value) {
+  await page.locator('input[name="q"]').fill(value);
+  await page.locator('[data-testid="wardrobe-filters"] button[type="submit"]').click();
+  await page.waitForLoadState("networkidle");
+}
+
 async function main() {
   const appUrl = process.env.APP_URL || "http://localhost:3000";
-  const uploadPath = path.join(os.tmpdir(), "smartwardrobe-upload.svg");
+  const token = Date.now().toString(36);
+  const uploadPath = path.join(os.tmpdir(), `smartwardrobe-upload-${token}.svg`);
+  const firstGarment = {
+    name: `Nebula Shirt ${token}`,
+    subcategory: "shirt",
+    color: "blue",
+    brand: `Moon Brand ${token}`,
+    notes: `nebula-note-${token}`,
+  };
+  const secondGarment = {
+    name: `Aurora Coat ${token}`,
+    subcategory: "coat",
+    color: "black",
+    brand: `Aurora Brand ${token}`,
+    notes: `aurora-note-${token}`,
+  };
+  const thirdGarment = {
+    name: `Nova Skirt ${token}`,
+    subcategory: "skirt",
+    color: "red",
+    brand: `Nova Brand ${token}`,
+    notes: `nova-note-${token}`,
+  };
 
   fs.writeFileSync(
     uploadPath,
@@ -13,32 +126,20 @@ async function main() {
   );
 
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
+  const primaryContext = await browser.newContext();
+  const page = await primaryContext.newPage();
 
   try {
-    await page.goto(`${appUrl}/login`, { waitUntil: "networkidle" });
-    await page.locator('form button[type="submit"]').click();
-    await page.waitForURL("**/wardrobe");
+    const loginMode = await loginWithIdentity(page, appUrl, PRESET_IDENTITIES[0]);
 
-    await page.locator('a[href="/import"]').nth(1).click();
-    await page.waitForURL("**/import");
-
-    await page.locator('input[type="file"]').setInputFiles(uploadPath);
-    await page.locator('input[name="name"]').fill("Blue Shirt");
-    await page.locator('select[name="subcategory"]').selectOption("shirt");
-    await page.locator('select[name="color"]').selectOption("blue");
-    await page.locator('input[name="brand"]').fill("Demo Label");
-    await page
-      .locator('textarea[name="notes"]')
-      .fill("Browser smoke test");
-    await page.locator('form button[type="submit"]').click();
-
-    await page.waitForURL(/\/garment\//);
-    await page.waitForLoadState("networkidle");
+    await importGarment(page, appUrl, uploadPath, firstGarment);
+    const firstGarmentId = /\/garment\/([^?]+)/.exec(page.url())?.[1];
+    if (!firstGarmentId) {
+      throw new Error(`Unable to parse first garment id from ${page.url()}`);
+    }
 
     const autoCategory = await page.locator('select[name="category"]').inputValue();
     const autoSeason = await page.locator('select[name="season"]').inputValue();
-
     if (autoCategory !== "tops" || autoSeason !== "spring") {
       throw new Error(`Unexpected auto classification: ${autoCategory}/${autoSeason}`);
     }
@@ -47,36 +148,94 @@ async function main() {
     await page.locator('select[name="subcategory"]').selectOption("jacket");
     await page.locator('select[name="color"]').selectOption("black");
     await page.locator('select[name="season"]').selectOption("winter");
-    await page
-      .locator('textarea[name="notes"]')
-      .fill("Manual override from browser smoke test");
-    await page.locator('form button[type="submit"]').click();
-
+    await page.locator('textarea[name="notes"]').fill(`manual-note-${token}`);
+    await page.locator('[data-testid="garment-edit-form"] button[type="submit"]').click();
     await page.waitForURL(/saved=1/);
-    await page.waitForLoadState("networkidle");
 
-    const savedCategory = await page.locator('select[name="category"]').inputValue();
-    const savedSeason = await page.locator('select[name="season"]').inputValue();
-    const savedColor = await page.locator('select[name="color"]').inputValue();
+    await importGarment(page, appUrl, uploadPath, secondGarment);
+    await page.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
 
-    if (
-      savedCategory !== "outerwear" ||
-      savedSeason !== "winter" ||
-      savedColor !== "black"
-    ) {
-      throw new Error(
-        `Unexpected saved values: ${savedCategory}/${savedSeason}/${savedColor}`,
-      );
+    await applySearch(page, "Nebula Shirt");
+    await page.getByText(firstGarment.name).waitFor();
+    await assertWardrobeDoesNotShow(
+      page,
+      secondGarment.name,
+      "Name search returned an unexpected second garment",
+    );
+
+    await applySearch(page, `Moon Brand ${token}`);
+    await page.getByText(firstGarment.name).waitFor();
+
+    await applySearch(page, `manual-note-${token}`);
+    await page.getByText(firstGarment.name).waitFor();
+
+    await page.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
+    await page.locator('select[name="sort"]').selectOption("name-asc");
+    await applySearch(page, token);
+    const firstCardAsc = (await page.locator("article h2").first().textContent())?.trim();
+    if (firstCardAsc !== secondGarment.name) {
+      throw new Error(`Unexpected first card for name-asc: ${firstCardAsc}`);
     }
 
-    await page.locator('a[href="/wardrobe"]').last().click();
-    await page.waitForURL("**/wardrobe");
-    await page.locator('select[name="category"]').selectOption("outerwear");
-    await page.locator('button[type="submit"]').click();
-    await page.locator("text=Blue Shirt").first().waitFor();
+    await page.locator('select[name="sort"]').selectOption("oldest");
+    await applySearch(page, token);
+    const firstCardOldest = (await page.locator("article h2").first().textContent())?.trim();
+    if (firstCardOldest !== firstGarment.name) {
+      throw new Error(`Unexpected first card for oldest sort: ${firstCardOldest}`);
+    }
+
+    if (loginMode !== "legacy-demo") {
+      const secondaryContext = await browser.newContext();
+      const secondaryPage = await secondaryContext.newPage();
+
+      try {
+        await loginWithIdentity(secondaryPage, appUrl, PRESET_IDENTITIES[1]);
+        await secondaryPage.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
+        await assertWardrobeDoesNotShow(
+          secondaryPage,
+          firstGarment.name,
+          "Primary identity garment leaked into the secondary identity wardrobe",
+        );
+        await assertWardrobeDoesNotShow(
+          secondaryPage,
+          secondGarment.name,
+          "Second primary garment leaked into the secondary identity wardrobe",
+        );
+
+        await importGarment(secondaryPage, appUrl, uploadPath, thirdGarment);
+        await secondaryPage.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
+        await secondaryPage.getByText(thirdGarment.name).waitFor();
+
+        await page.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
+        await applySearch(page, token);
+        await page.getByText(firstGarment.name).waitFor();
+        await assertWardrobeDoesNotShow(
+          page,
+          thirdGarment.name,
+          "Secondary identity garment leaked into the primary identity wardrobe",
+        );
+      } finally {
+        await secondaryContext.close();
+      }
+    }
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.goto(`${appUrl}/garment/${firstGarmentId}`, { waitUntil: "networkidle" });
+    await page.locator("form").last().getByRole("button").click();
+    await page.waitForURL(/\/wardrobe\?deleted=1/);
+    await page.waitForLoadState("networkidle");
+
+    await assertWardrobeDoesNotShow(page, firstGarment.name, "Deleted garment is still visible in wardrobe");
+    await page.getByText(secondGarment.name).waitFor();
+
+    await page.goto(`${appUrl}/garment/${firstGarmentId}`, { waitUntil: "networkidle" });
+    if (await locatorExists(page.locator('[data-testid="garment-edit-form"]'))) {
+      throw new Error("Deleted garment detail page is still editable");
+    }
 
     console.log("BROWSER_SMOKE_OK");
   } finally {
+    await primaryContext.close();
     await browser.close();
     try {
       fs.unlinkSync(uploadPath);

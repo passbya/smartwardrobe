@@ -15,7 +15,7 @@ const bodyFont = Manrope({
 
 export const metadata: Metadata = {
   title: "SmartWardrobe",
-  description: "电子衣橱 Web MVP，用于导入、分类和手动修正服装。",
+  description: "电子衣橱 Web 版，用于导入、分类与手动整理服装。",
 };
 
 export default function RootLayout({
@@ -28,9 +28,7 @@ export default function RootLayout({
       lang="zh-CN"
       className={`${displayFont.variable} ${bodyFont.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-background text-foreground">
-        {children}
-      </body>
+      <body className="flex min-h-full flex-col bg-background text-foreground">{children}</body>
     </html>
   );
 }

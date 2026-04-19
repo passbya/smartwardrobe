@@ -2,6 +2,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  lunaSession,
+  novaSession,
+} from "../helpers/preset-identity-fixtures";
 
 vi.mock("@/lib/classification", () => ({
   classifyGarmentByRules: (subcategory: string) =>
@@ -17,6 +21,16 @@ vi.mock("@/lib/classification", () => ({
 }));
 
 type DataStoreModule = typeof import("@/lib/data-store");
+
+function createUploadFile(name: string, contents = "image-bytes") {
+  return {
+    name,
+    size: contents.length,
+    async arrayBuffer() {
+      return new TextEncoder().encode(contents).buffer;
+    },
+  } as File;
+}
 
 describe("data store repository", () => {
   let tempDir = "";
@@ -43,42 +57,33 @@ describe("data store repository", () => {
     vi.useRealTimers();
   });
 
-  it("creates garments from repository input without requiring Supabase", async () => {
-    const session = await dataStore.getOrCreateDemoProfile();
-    const uploadFile = {
-      name: "Mock Blazer.png",
-      size: 12,
-      async arrayBuffer() {
-        return new TextEncoder().encode("image-bytes").buffer;
-      },
-    } as File;
-
+  it("creates garments for the chosen preset identity without requiring Supabase", async () => {
     const imageUrl = await dataStore.saveUpload(
-      session.userId,
+      lunaSession.userId,
       "garment-001",
-      uploadFile,
+      createUploadFile("Mock Blazer.png"),
     );
 
     const garment = await dataStore.createGarmentRecord(
-      session.userId,
+      lunaSession.userId,
       "garment-001",
       {
         name: "Mock Blazer",
         subcategory: "mocked-subcategory",
         color: "navy",
         season: "winter",
-        brand: "Demo Label",
+        brand: "Moon Label",
         notes: "Repository contract smoke test",
       },
       imageUrl,
     );
 
     expect(imageUrl).toBe(
-      `/api/uploads/${session.userId}/garment-001-mock-blazer.png`,
+      `/api/uploads/${lunaSession.userId}/garment-001-mock-blazer.png`,
     );
     expect(garment).toMatchObject({
       id: "garment-001",
-      user_id: session.userId,
+      user_id: lunaSession.userId,
       image_url: imageUrl,
       category: "tops",
       subcategory: "mocked-subcategory",
@@ -87,62 +92,52 @@ describe("data store repository", () => {
       source: "manual_import",
     });
 
-    expect(await dataStore.getGarmentById(session.userId, "garment-001")).toMatchObject(
-      {
-        id: "garment-001",
-        category: "tops",
-        season: "winter",
-      },
-    );
-    expect(await dataStore.getGarmentById("other-user", "garment-001")).toBeNull();
+    expect(await dataStore.getGarmentById(lunaSession.userId, "garment-001")).toMatchObject({
+      id: "garment-001",
+      category: "tops",
+      season: "winter",
+    });
+    expect(await dataStore.getGarmentById(novaSession.userId, "garment-001")).toBeNull();
   });
 
-  it("keeps list ordering stable and marks manual overrides as final", async () => {
+  it("keeps list ordering stable and preserves manual overrides per preset identity", async () => {
     vi.useFakeTimers();
-
-    const session = await dataStore.getOrCreateDemoProfile();
-    const uploadFile = {
-      name: "Wardrobe Photo.png",
-      size: 12,
-      async arrayBuffer() {
-        return new TextEncoder().encode("image-bytes").buffer;
-      },
-    } as File;
+    const uploadFile = createUploadFile("Wardrobe Photo.png");
 
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
     await dataStore.createGarmentRecord(
-      session.userId,
+      lunaSession.userId,
       "garment-001",
       {
         name: "Daily Blazer",
         subcategory: "mocked-subcategory",
       },
-      await dataStore.saveUpload(session.userId, "garment-001", uploadFile),
+      await dataStore.saveUpload(lunaSession.userId, "garment-001", uploadFile),
     );
 
     vi.setSystemTime(new Date("2026-01-01T00:00:01.000Z"));
     await dataStore.createGarmentRecord(
-      "other-user",
+      novaSession.userId,
       "garment-900",
       {
         name: "Other User Coat",
         subcategory: "mocked-subcategory",
       },
-      await dataStore.saveUpload("other-user", "garment-900", uploadFile),
+      await dataStore.saveUpload(novaSession.userId, "garment-900", uploadFile),
     );
 
     vi.setSystemTime(new Date("2026-01-01T00:00:02.000Z"));
     await dataStore.createGarmentRecord(
-      session.userId,
+      lunaSession.userId,
       "garment-002",
       {
         name: "Layered Jacket",
         subcategory: "mocked-subcategory",
       },
-      await dataStore.saveUpload(session.userId, "garment-002", uploadFile),
+      await dataStore.saveUpload(lunaSession.userId, "garment-002", uploadFile),
     );
 
-    const garments = await dataStore.listGarments(session.userId);
+    const garments = await dataStore.listGarments(lunaSession.userId);
 
     expect(garments.map((garment) => garment.id)).toEqual([
       "garment-002",
@@ -150,14 +145,14 @@ describe("data store repository", () => {
     ]);
 
     const updatedGarment = await dataStore.updateGarmentRecord(
-      session.userId,
+      lunaSession.userId,
       "garment-001",
       {
         category: "outerwear",
         subcategory: "coat",
         color: "black",
         season: "winter",
-        brand: "Demo Label",
+        brand: "Moon Label",
         notes: "Manually corrected after import",
       },
     );
@@ -169,14 +164,16 @@ describe("data store repository", () => {
       season: "winter",
       classification_source: "manual",
     });
-    expect(await dataStore.getGarmentById(session.userId, "garment-001")).toMatchObject(
-      {
-        category: "outerwear",
-        subcategory: "coat",
-        season: "winter",
-        classification_source: "manual",
-      },
-    );
-    expect(await dataStore.getGarmentById(session.userId, "garment-900")).toBeNull();
+    expect(await dataStore.getGarmentById(lunaSession.userId, "garment-001")).toMatchObject({
+      category: "outerwear",
+      subcategory: "coat",
+      season: "winter",
+      classification_source: "manual",
+    });
+    expect(await dataStore.getGarmentById(lunaSession.userId, "garment-900")).toBeNull();
+    expect(await dataStore.getGarmentById(novaSession.userId, "garment-900")).toMatchObject({
+      id: "garment-900",
+      user_id: novaSession.userId,
+    });
   });
 });

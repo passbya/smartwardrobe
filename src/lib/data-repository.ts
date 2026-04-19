@@ -1,6 +1,6 @@
 import { createLocalRepository } from "@/lib/local-repository";
 import { createSupabaseRepository } from "@/lib/supabase-repository";
-import type { DemoSession, GarmentInput, GarmentRecord } from "@/lib/types";
+import type { GarmentInput, GarmentRecord, UserSession } from "@/lib/types";
 
 export type GarmentUpdates = Pick<
   GarmentRecord,
@@ -8,7 +8,7 @@ export type GarmentUpdates = Pick<
 >;
 
 export interface SmartWardrobeRepository {
-  getOrCreateDemoProfile(): Promise<DemoSession>;
+  getOrCreatePresetProfile(slug: string): Promise<UserSession>;
   listGarments(userId: string): Promise<GarmentRecord[]>;
   getGarmentById(userId: string, garmentId: string): Promise<GarmentRecord | null>;
   saveUpload(userId: string, garmentId: string, file: File): Promise<string>;
@@ -24,6 +24,7 @@ export interface SmartWardrobeRepository {
     garmentId: string,
     updates: GarmentUpdates,
   ): Promise<GarmentRecord | null>;
+  deleteGarmentRecord(userId: string, garmentId: string): Promise<GarmentRecord | null>;
 }
 
 export type RepositoryMode = "local" | "supabase";
@@ -83,11 +84,11 @@ function classifySupabaseFallback(error: unknown) {
   }
 
   if (/PGRST205|Could not find the table|schema cache|does not exist/i.test(details)) {
-    return "Supabase 缺少必需的数据表，已回退到本地 demo。请先执行初始 migration。";
+    return "Supabase 缺少必需的数据表，已回退到本地预设身份模式。请先执行初始 migration。";
   }
 
   if (/Bucket not found|The resource was not found|storage.*404/i.test(details)) {
-    return `Supabase 存储桶 ${getSupabaseBucket()} 不可用，已回退到本地 demo。请先创建或修复该 bucket。`;
+    return `Supabase 存储桶 ${getSupabaseBucket()} 不可用，已回退到本地预设身份模式。请先创建或修复该 bucket。`;
   }
 
   return null;
@@ -126,8 +127,8 @@ function createResilientSupabaseRepository(): SmartWardrobeRepository {
   }
 
   return {
-    getOrCreateDemoProfile() {
-      return runWithFallback((candidate) => candidate.getOrCreateDemoProfile());
+    getOrCreatePresetProfile(slug: string) {
+      return runWithFallback((candidate) => candidate.getOrCreatePresetProfile(slug));
     },
     listGarments(userId: string) {
       return runWithFallback((candidate) => candidate.listGarments(userId));
@@ -143,9 +144,7 @@ function createResilientSupabaseRepository(): SmartWardrobeRepository {
       );
     },
     loadUpload(userId: string, fileName: string) {
-      return runWithFallback((candidate) =>
-        candidate.loadUpload(userId, fileName),
-      );
+      return runWithFallback((candidate) => candidate.loadUpload(userId, fileName));
     },
     createGarmentRecord(
       userId: string,
@@ -160,6 +159,11 @@ function createResilientSupabaseRepository(): SmartWardrobeRepository {
     updateGarmentRecord(userId: string, garmentId: string, updates: GarmentUpdates) {
       return runWithFallback((candidate) =>
         candidate.updateGarmentRecord(userId, garmentId, updates),
+      );
+    },
+    deleteGarmentRecord(userId: string, garmentId: string) {
+      return runWithFallback((candidate) =>
+        candidate.deleteGarmentRecord(userId, garmentId),
       );
     },
   };

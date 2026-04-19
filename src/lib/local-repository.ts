@@ -3,14 +3,20 @@ import {
   mkdir,
   readFile,
   rename,
+  rm,
   unlink,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
 import { classifyGarmentByRules } from "@/lib/classification";
 import type { SmartWardrobeRepository } from "@/lib/data-repository";
-import type { DemoSession, GarmentInput, GarmentRecord } from "@/lib/types";
 import {
+  getPresetIdentityBySlug,
+  toUserSession,
+} from "@/lib/preset-identities";
+import type { GarmentInput, GarmentRecord, UserSession } from "@/lib/types";
+import {
+  extractUploadReference,
   getGarmentsPath,
   getJsonDataDir,
   getProfilesPath,
@@ -165,26 +171,47 @@ async function loadUploadFile(
   }
 }
 
+async function removeUploadFile(imageUrl: string) {
+  const reference = extractUploadReference(imageUrl);
+
+  if (!reference) {
+    return;
+  }
+
+  try {
+    const absolutePath = resolveUploadFilePath(reference.userId, reference.fileName);
+    await rm(absolutePath, { force: true });
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return;
+    }
+
+    throw error;
+  }
+}
+
 export function createLocalRepository(): SmartWardrobeRepository {
   return {
-    async getOrCreateDemoProfile(): Promise<DemoSession> {
+    async getOrCreatePresetProfile(slug: string): Promise<UserSession> {
       try {
+        const identity = getPresetIdentityBySlug(slug);
+
+        if (!identity) {
+          throw new Error(`Unknown preset identity: ${slug}`);
+        }
+
         const profiles = await readJsonFile<ProfileRecord[]>(getProfilesPath(), []);
-        const existing = profiles.find((profile) => profile.is_demo);
+        const existing = profiles.find((profile) => profile.id === identity.userId);
 
         if (existing) {
-          return {
-            userId: existing.id,
-            displayName: existing.display_name,
-            isDemo: existing.is_demo,
-          };
+          return toUserSession(identity);
         }
 
         const now = new Date().toISOString();
         const createdProfile: ProfileRecord = {
-          id: randomUUID(),
-          display_name: "Demo Stylist",
-          is_demo: true,
+          id: identity.userId,
+          display_name: identity.displayName,
+          is_demo: false,
           created_at: now,
           updated_at: now,
         };
@@ -192,13 +219,9 @@ export function createLocalRepository(): SmartWardrobeRepository {
         profiles.push(createdProfile);
         await writeJsonFile(getProfilesPath(), profiles);
 
-        return {
-          userId: createdProfile.id,
-          displayName: createdProfile.display_name,
-          isDemo: createdProfile.is_demo,
-        };
+        return toUserSession(identity);
       } catch (error) {
-        throw createRepositoryError("create or load the demo profile", error);
+        throw createRepositoryError(`create or load preset profile ${slug}`, error);
       }
     },
 
@@ -316,6 +339,27 @@ export function createLocalRepository(): SmartWardrobeRepository {
         return updatedGarment;
       } catch (error) {
         throw createRepositoryError(`update garment ${garmentId}`, error);
+      }
+    },
+
+    async deleteGarmentRecord(userId: string, garmentId: string) {
+      try {
+        const garments = await readJsonFile<GarmentRecord[]>(getGarmentsPath(), []);
+        const garmentIndex = garments.findIndex(
+          (garment) => garment.user_id === userId && garment.id === garmentId,
+        );
+
+        if (garmentIndex === -1) {
+          return null;
+        }
+
+        const [deletedGarment] = garments.splice(garmentIndex, 1);
+        await removeUploadFile(deletedGarment.image_url);
+        await writeJsonFile(getGarmentsPath(), garments);
+
+        return deletedGarment;
+      } catch (error) {
+        throw createRepositoryError(`delete garment ${garmentId}`, error);
       }
     },
   };

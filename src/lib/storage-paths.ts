@@ -63,6 +63,27 @@ export function getUploadObjectKey(userId: string, fileName: string) {
   return `${userId}/${fileName}`;
 }
 
+export function extractUploadReference(
+  imageUrl: string,
+): { userId: string; fileName: string } | null {
+  const matched = imageUrl.match(/^\/api\/uploads\/([^/]+)\/([^/]+)$/);
+
+  if (!matched) {
+    return null;
+  }
+
+  const [, userId, fileName] = matched;
+
+  if (!isSafePathSegment(userId) || !isSafePathSegment(fileName)) {
+    return null;
+  }
+
+  return {
+    userId,
+    fileName,
+  };
+}
+
 export function sanitizeUploadFileName(filename: string) {
   const extension = path.extname(filename) || ".jpg";
   const basename = path

@@ -1,15 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { lunaSession } from "../helpers/preset-identity-fixtures";
 
 const createLocalRepository = vi.fn(() => ({
-  getOrCreateDemoProfile: vi.fn(async () => ({
-    userId: "local-demo-user",
-    displayName: "Demo Stylist",
-    isDemo: true,
-  })),
+  getOrCreatePresetProfile: vi.fn(async () => lunaSession),
 }));
 
 const createSupabaseRepository = vi.fn(() => ({
-  getOrCreateDemoProfile: vi.fn(async () => {
+  getOrCreatePresetProfile: vi.fn(async () => {
     throw new Error('relation "profiles" does not exist');
   }),
 }));
@@ -53,33 +50,26 @@ describe("repository fallback when Supabase schema is unavailable", () => {
     if (originalEnv.SUPABASE_SERVICE_ROLE_KEY === undefined) {
       delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     } else {
-      process.env.SUPABASE_SERVICE_ROLE_KEY =
-        originalEnv.SUPABASE_SERVICE_ROLE_KEY;
+      process.env.SUPABASE_SERVICE_ROLE_KEY = originalEnv.SUPABASE_SERVICE_ROLE_KEY;
     }
 
     if (originalEnv.SMARTWARDROBE_SUPABASE_BUCKET === undefined) {
       delete process.env.SMARTWARDROBE_SUPABASE_BUCKET;
     } else {
-      process.env.SMARTWARDROBE_SUPABASE_BUCKET =
-        originalEnv.SMARTWARDROBE_SUPABASE_BUCKET;
+      process.env.SMARTWARDROBE_SUPABASE_BUCKET = originalEnv.SMARTWARDROBE_SUPABASE_BUCKET;
     }
 
     vi.clearAllMocks();
     vi.restoreAllMocks();
   });
 
-  it("falls back to the local repository when Supabase is configured but schema access fails", async () => {
+  it("falls back to the local repository and still returns a preset identity session", async () => {
     expect(repositoryModule.getRepositoryMode()).toBe("supabase");
 
     const repository = repositoryModule.getRepository();
-    const session = await repository.getOrCreateDemoProfile();
+    const session = await repository.getOrCreatePresetProfile(lunaSession.slug);
 
-    expect(session).toEqual({
-      userId: "local-demo-user",
-      displayName: "Demo Stylist",
-      isDemo: true,
-    });
-
+    expect(session).toEqual(lunaSession);
     expect(repositoryModule.getRepositoryMode()).toBe("local");
     expect(repositoryModule.getRepositoryStatus()).toMatchObject({
       preferredMode: "supabase",

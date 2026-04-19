@@ -1,9 +1,9 @@
-import type { DemoSession, GarmentInput } from "@/lib/types";
+import type { GarmentInput } from "@/lib/types";
 import { getRepository } from "@/lib/data-repository";
 import type { GarmentUpdates } from "@/lib/data-repository";
 
-export async function getOrCreateDemoProfile(): Promise<DemoSession> {
-  return getRepository().getOrCreateDemoProfile();
+export async function getOrCreatePresetProfile(slug: string) {
+  return getRepository().getOrCreatePresetProfile(slug);
 }
 
 export async function listGarments(userId: string) {
@@ -37,4 +37,8 @@ export async function updateGarmentRecord(
   updates: GarmentUpdates,
 ) {
   return getRepository().updateGarmentRecord(userId, garmentId, updates);
+}
+
+export async function deleteGarmentRecord(userId: string, garmentId: string) {
+  return getRepository().deleteGarmentRecord(userId, garmentId);
 }

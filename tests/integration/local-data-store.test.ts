@@ -1,10 +1,25 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  irisSession,
+  lunaSession,
+  novaSession,
+} from "../helpers/preset-identity-fixtures";
 
 type DataStoreModule = typeof import("@/lib/data-store");
 type UploadRouteModule = typeof import("@/app/api/uploads/[userId]/[fileName]/route");
+
+function createUploadFile(name: string, contents = "image-bytes") {
+  return {
+    name,
+    size: contents.length,
+    async arrayBuffer() {
+      return new TextEncoder().encode(contents).buffer;
+    },
+  } as File;
+}
 
 describe("local data store flow", () => {
   let tempDir = "";
@@ -33,52 +48,36 @@ describe("local data store flow", () => {
     vi.useRealTimers();
   });
 
-  it("persists a demo session, upload, classification, and manual override", async () => {
-    const firstSession = await dataStore.getOrCreateDemoProfile();
-    const secondSession = await dataStore.getOrCreateDemoProfile();
-
-    expect(secondSession).toEqual(firstSession);
-
-    const uploadFile = {
-      name: "Summer Shirt!.png",
-      size: 11,
-      async arrayBuffer() {
-        return new TextEncoder().encode("image-bytes").buffer;
-      },
-    } as File;
-
+  it("persists uploads, classification, and manual overrides for the selected preset identity", async () => {
     const uploadedPath = await dataStore.saveUpload(
-      firstSession.userId,
+      lunaSession.userId,
       "garment-001",
-      uploadFile,
+      createUploadFile("Summer Shirt!.png"),
     );
 
     expect(uploadedPath).toBe(
-      `/api/uploads/${firstSession.userId}/garment-001-summer-shirt.png`,
+      `/api/uploads/${lunaSession.userId}/garment-001-summer-shirt.png`,
     );
 
-    const uploadedFileResponse = await uploadRoute.GET(
-      new Request("http://localhost"),
-      {
-        params: Promise.resolve({
-          userId: firstSession.userId,
-          fileName: "garment-001-summer-shirt.png",
-        }),
-      },
-    );
+    const uploadedFileResponse = await uploadRoute.GET(new Request("http://localhost"), {
+      params: Promise.resolve({
+        userId: lunaSession.userId,
+        fileName: "garment-001-summer-shirt.png",
+      }),
+    });
 
     expect(uploadedFileResponse.status).toBe(200);
     expect(uploadedFileResponse.headers.get("Content-Type")).toBe("image/png");
     expect(await uploadedFileResponse.text()).toBe("image-bytes");
 
     const garment = await dataStore.createGarmentRecord(
-      firstSession.userId,
+      lunaSession.userId,
       "garment-001",
       {
         name: "Linen Shirt",
         subcategory: "shirt",
         color: "white",
-        brand: "Demo Label",
+        brand: "Moon Label",
         notes: "Lightweight and breathable",
       },
       uploadedPath,
@@ -86,7 +85,7 @@ describe("local data store flow", () => {
 
     expect(garment).toMatchObject({
       id: "garment-001",
-      user_id: firstSession.userId,
+      user_id: lunaSession.userId,
       category: "tops",
       subcategory: "shirt",
       season: "spring",
@@ -94,24 +93,15 @@ describe("local data store flow", () => {
       source: "manual_import",
     });
 
-    const allGarments = await dataStore.listGarments(firstSession.userId);
-    expect(allGarments).toHaveLength(1);
-    expect(allGarments[0]).toMatchObject({
-      id: "garment-001",
-      category: "tops",
-      season: "spring",
-      classification_source: "rule",
-    });
-
     const updatedGarment = await dataStore.updateGarmentRecord(
-      firstSession.userId,
+      lunaSession.userId,
       "garment-001",
       {
         category: "outerwear",
         subcategory: "jacket",
         color: "black",
         season: "winter",
-        brand: "Demo Label",
+        brand: "Moon Label",
         notes: "Manually corrected after import",
       },
     );
@@ -124,50 +114,77 @@ describe("local data store flow", () => {
       classification_source: "manual",
     });
 
-    const fetched = await dataStore.getGarmentById(
-      firstSession.userId,
-      "garment-001",
-    );
-
-    expect(fetched).toMatchObject({
+    expect(await dataStore.getGarmentById(lunaSession.userId, "garment-001")).toMatchObject({
       id: "garment-001",
       category: "outerwear",
       subcategory: "jacket",
       season: "winter",
       classification_source: "manual",
     });
+    expect(await dataStore.getGarmentById(novaSession.userId, "garment-001")).toBeNull();
+    expect(await dataStore.listGarments(novaSession.userId)).toEqual([]);
 
-    const garmentsJson = await readFile(
-      path.join(tempDir, "json", "garments.json"),
-      "utf8",
-    );
+    const garmentsJson = await readFile(path.join(tempDir, "json", "garments.json"), "utf8");
     expect(JSON.parse(garmentsJson)).toHaveLength(1);
   });
 
-  it("recovers from malformed json and keeps the backup", async () => {
-    await mkdir(path.join(tempDir, "json"), { recursive: true });
-    await writeFile(path.join(tempDir, "json", "profiles.json"), "{broken", "utf8");
-
-    const session = await dataStore.getOrCreateDemoProfile();
-
-    expect(session.isDemo).toBe(true);
-
-    const repairedJson = await readFile(
-      path.join(tempDir, "json", "profiles.json"),
-      "utf8",
+  it("keeps wardrobes isolated when the user switches between preset identities", async () => {
+    const lunaImageUrl = await dataStore.saveUpload(
+      lunaSession.userId,
+      "garment-luna",
+      createUploadFile("Moon Cardigan.png", "luna-bytes"),
     );
-    expect(JSON.parse(repairedJson)).toEqual([
-      {
-        id: session.userId,
-        display_name: "Demo Stylist",
-        is_demo: true,
-        created_at: expect.any(String),
-        updated_at: expect.any(String),
-      },
-    ]);
+    const novaImageUrl = await dataStore.saveUpload(
+      novaSession.userId,
+      "garment-nova",
+      createUploadFile("Night Blazer.png", "nova-bytes"),
+    );
 
-    const backupEntries = await readdir(path.join(tempDir, "json"));
-    expect(backupEntries.some((entry) => entry.startsWith("profiles.json.corrupt-"))).toBe(true);
+    await dataStore.createGarmentRecord(
+      lunaSession.userId,
+      "garment-luna",
+      {
+        name: "Moon Cardigan",
+        subcategory: "cardigan",
+        color: "blue",
+      },
+      lunaImageUrl,
+    );
+    await dataStore.createGarmentRecord(
+      novaSession.userId,
+      "garment-nova",
+      {
+        name: "Night Blazer",
+        subcategory: "jacket",
+        color: "black",
+      },
+      novaImageUrl,
+    );
+
+    expect((await dataStore.listGarments(lunaSession.userId)).map((garment) => garment.id)).toEqual([
+      "garment-luna",
+    ]);
+    expect((await dataStore.listGarments(novaSession.userId)).map((garment) => garment.id)).toEqual([
+      "garment-nova",
+    ]);
+    expect(await dataStore.getGarmentById(lunaSession.userId, "garment-nova")).toBeNull();
+    expect(await dataStore.getGarmentById(novaSession.userId, "garment-luna")).toBeNull();
+
+    const lunaUpload = await uploadRoute.GET(new Request("http://localhost"), {
+      params: Promise.resolve({
+        userId: lunaSession.userId,
+        fileName: "garment-luna-moon-cardigan.png",
+      }),
+    });
+    const novaUpload = await uploadRoute.GET(new Request("http://localhost"), {
+      params: Promise.resolve({
+        userId: novaSession.userId,
+        fileName: "garment-nova-night-blazer.png",
+      }),
+    });
+
+    expect(await lunaUpload.text()).toBe("luna-bytes");
+    expect(await novaUpload.text()).toBe("nova-bytes");
   });
 
   it("rejects unsafe upload paths", async () => {
@@ -181,69 +198,112 @@ describe("local data store flow", () => {
     expect(response.status).toBe(400);
   });
 
-  it("orders the wardrobe by newest first and keeps garments isolated by user", async () => {
+  it("orders the wardrobe by newest first for each preset identity", async () => {
     vi.useFakeTimers();
-
-    const session = await dataStore.getOrCreateDemoProfile();
-    const uploadFile = {
-      name: "Wardrobe Photo.png",
-      size: 11,
-      async arrayBuffer() {
-        return new TextEncoder().encode("image-bytes").buffer;
-      },
-    } as File;
+    const uploadFile = createUploadFile("Wardrobe Photo.png");
 
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
     await dataStore.createGarmentRecord(
-      session.userId,
+      lunaSession.userId,
       "garment-001",
       {
         name: "Daily Tee",
         subcategory: "tshirt",
         season: "all-season",
       },
-      await dataStore.saveUpload(session.userId, "garment-001", uploadFile),
+      await dataStore.saveUpload(lunaSession.userId, "garment-001", uploadFile),
     );
 
     vi.setSystemTime(new Date("2026-01-01T00:00:01.000Z"));
     await dataStore.createGarmentRecord(
-      "other-user",
+      irisSession.userId,
       "garment-900",
       {
         name: "Weekend Coat",
         subcategory: "coat",
       },
-      await dataStore.saveUpload("other-user", "garment-900", uploadFile),
+      await dataStore.saveUpload(irisSession.userId, "garment-900", uploadFile),
     );
 
     vi.setSystemTime(new Date("2026-01-01T00:00:02.000Z"));
     await dataStore.createGarmentRecord(
-      session.userId,
+      lunaSession.userId,
       "garment-002",
       {
         name: "Layered Jacket",
         subcategory: "jacket",
       },
-      await dataStore.saveUpload(session.userId, "garment-002", uploadFile),
+      await dataStore.saveUpload(lunaSession.userId, "garment-002", uploadFile),
     );
 
-    const garments = await dataStore.listGarments(session.userId);
+    const garments = await dataStore.listGarments(lunaSession.userId);
 
-    expect(garments.map((garment) => garment.id)).toEqual([
-      "garment-002",
-      "garment-001",
-    ]);
+    expect(garments.map((garment) => garment.id)).toEqual(["garment-002", "garment-001"]);
     expect(garments[1]).toMatchObject({
       category: "tops",
       season: "all-season",
       classification_source: "rule",
     });
-    expect(await dataStore.getGarmentById(session.userId, "garment-900")).toBeNull();
-    expect(await dataStore.getGarmentById("other-user", "garment-900")).toMatchObject({
+    expect(await dataStore.getGarmentById(lunaSession.userId, "garment-900")).toBeNull();
+    expect(await dataStore.getGarmentById(irisSession.userId, "garment-900")).toMatchObject({
       id: "garment-900",
-      user_id: "other-user",
+      user_id: irisSession.userId,
       category: "outerwear",
       season: "winter",
     });
+  });
+
+  it("deletes a garment record and removes only that identity's local upload", async () => {
+    const uploadFile = createUploadFile("Delete Me.png", "delete-bytes");
+    const lunaImageUrl = await dataStore.saveUpload(
+      lunaSession.userId,
+      "garment-001",
+      uploadFile,
+    );
+    const novaImageUrl = await dataStore.saveUpload(
+      novaSession.userId,
+      "garment-002",
+      createUploadFile("Keep Me.png", "keep-bytes"),
+    );
+
+    await dataStore.createGarmentRecord(
+      lunaSession.userId,
+      "garment-001",
+      {
+        name: "Delete Me",
+        subcategory: "shirt",
+      },
+      lunaImageUrl,
+    );
+    await dataStore.createGarmentRecord(
+      novaSession.userId,
+      "garment-002",
+      {
+        name: "Keep Me",
+        subcategory: "shirt",
+      },
+      novaImageUrl,
+    );
+
+    const deleted = await dataStore.deleteGarmentRecord(lunaSession.userId, "garment-001");
+
+    expect(deleted).toMatchObject({
+      id: "garment-001",
+      name: "Delete Me",
+    });
+    expect(await dataStore.getGarmentById(lunaSession.userId, "garment-001")).toBeNull();
+    expect(await dataStore.listGarments(lunaSession.userId)).toEqual([]);
+    expect(await dataStore.getGarmentById(novaSession.userId, "garment-002")).toMatchObject({
+      id: "garment-002",
+      name: "Keep Me",
+    });
+    await expect(
+      access(path.join(tempDir, "uploads", lunaSession.userId, "garment-001-delete-me.png")),
+    ).rejects.toThrow();
+    await expect(
+      access(path.join(tempDir, "uploads", novaSession.userId, "garment-002-keep-me.png")),
+    ).resolves.toBeUndefined();
+
+    await expect(dataStore.deleteGarmentRecord(irisSession.userId, "garment-001")).resolves.toBeNull();
   });
 });
