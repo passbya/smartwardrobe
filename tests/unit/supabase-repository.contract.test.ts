@@ -359,6 +359,7 @@ describe("Supabase repository contract", () => {
         ),
       )
       .mockResolvedValueOnce(new Response("", { status: 200 }))
+      .mockResolvedValueOnce(Response.json([], { status: 200 }))
       .mockResolvedValueOnce(
         Response.json(
           [
@@ -403,14 +404,233 @@ describe("Supabase repository contract", () => {
       method: "DELETE",
     });
 
-    const deleteInit = fetchMock.mock.calls[2]?.[1] as RequestInit;
-    const deleteHeaders = new Headers(deleteInit.headers);
     expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      `https://supabase.example.test/rest/v1/outfits?user_id=eq.${lunaSession.userId}&or=(top_garment_id.eq.garment-001%2Cbottom_garment_id.eq.garment-001%2Cdress_garment_id.eq.garment-001%2Couterwear_garment_id.eq.garment-001%2Cshoes_garment_id.eq.garment-001%2Caccessory_garment_ids.cs.%7Bgarment-001%7D)&select=*`,
+    );
+    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({
+      method: "DELETE",
+    });
+
+    const deleteInit = fetchMock.mock.calls[3]?.[1] as RequestInit;
+    const deleteHeaders = new Headers(deleteInit.headers);
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(
       `https://supabase.example.test/rest/v1/garments?id=eq.garment-001&user_id=eq.${lunaSession.userId}&select=*`,
     );
     expect(deleteInit.method).toBe("DELETE");
     expect(deleteHeaders.get("Prefer")).toBe("return=representation");
 
     await expect(repository.deleteGarmentRecord(lunaSession.userId, "missing")).resolves.toBeNull();
+  });
+
+  it("creates, updates, lists, reads, and deletes outfit rows through the REST contract", async () => {
+    const listGarmentsResponse = [
+      {
+        id: "garment-top-001",
+        user_id: lunaSession.userId,
+        image_url: `/api/uploads/${lunaSession.userId}/garment-top-001.png`,
+        name: "Nebula Shirt",
+        category: "tops",
+        subcategory: "shirt",
+        color: null,
+        season: null,
+        brand: null,
+        notes: null,
+        source: "manual_import",
+        classification_source: "rule",
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "garment-bottom-001",
+        user_id: lunaSession.userId,
+        image_url: `/api/uploads/${lunaSession.userId}/garment-bottom-001.png`,
+        name: "Midnight Skirt",
+        category: "bottoms",
+        subcategory: "skirt",
+        color: null,
+        season: null,
+        brand: null,
+        notes: null,
+        source: "manual_import",
+        classification_source: "rule",
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "garment-outerwear-001",
+        user_id: lunaSession.userId,
+        image_url: `/api/uploads/${lunaSession.userId}/garment-outerwear-001.png`,
+        name: "Aurora Coat",
+        category: "outerwear",
+        subcategory: "coat",
+        color: null,
+        season: null,
+        brand: null,
+        notes: null,
+        source: "manual_import",
+        classification_source: "rule",
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+
+    const updatedOutfitRow = {
+      id: "outfit-001",
+      user_id: lunaSession.userId,
+      name: "Moonlight Commute",
+      generated_name: "Nebula Shirt + Midnight Skirt等3件",
+      name_source: "manual",
+      top_garment_id: "garment-top-001",
+      bottom_garment_id: "garment-bottom-001",
+      dress_garment_id: null,
+      outerwear_garment_id: "garment-outerwear-001",
+      shoes_garment_id: null,
+      accessory_garment_ids: [],
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-02T00:00:00.000Z",
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(Response.json(listGarmentsResponse, { status: 200 }))
+      .mockResolvedValueOnce(
+        Response.json(
+          [
+            {
+              id: "outfit-001",
+              user_id: lunaSession.userId,
+              name: "Nebula Shirt + Midnight Skirt",
+              generated_name: "Nebula Shirt + Midnight Skirt",
+              name_source: "generated",
+              top_garment_id: "garment-top-001",
+              bottom_garment_id: "garment-bottom-001",
+              dress_garment_id: null,
+              outerwear_garment_id: null,
+              shoes_garment_id: null,
+              accessory_garment_ids: [],
+              created_at: "2026-01-01T00:00:00.000Z",
+              updated_at: "2026-01-01T00:00:00.000Z",
+            },
+          ],
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(Response.json([updatedOutfitRow], { status: 200 }))
+      .mockResolvedValueOnce(Response.json(listGarmentsResponse, { status: 200 }))
+      .mockResolvedValueOnce(Response.json([updatedOutfitRow], { status: 200 }))
+      .mockResolvedValueOnce(Response.json([updatedOutfitRow], { status: 200 }))
+      .mockResolvedValueOnce(Response.json([updatedOutfitRow], { status: 200 }))
+      .mockResolvedValueOnce(Response.json([updatedOutfitRow], { status: 200 }))
+      .mockResolvedValueOnce(new Response("", { status: 404 }));
+
+    const repository = repositoryModule.createSupabaseRepository();
+
+    const created = await repository.createOutfitRecord(lunaSession.userId, {
+      topGarmentId: "garment-top-001",
+      bottomGarmentId: "garment-bottom-001",
+      accessoryGarmentIds: [],
+    });
+
+    expect(created).toMatchObject({
+      id: "outfit-001",
+      user_id: lunaSession.userId,
+      name: "Nebula Shirt + Midnight Skirt",
+      generated_name: "Nebula Shirt + Midnight Skirt",
+      name_source: "generated",
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      `https://supabase.example.test/rest/v1/garments?user_id=eq.${lunaSession.userId}&select=*&order=created_at.desc`,
+    );
+
+    const createInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    const createHeaders = new Headers(createInit.headers);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://supabase.example.test/rest/v1/outfits?select=*",
+    );
+    expect(createInit.method).toBe("POST");
+    expect(createHeaders.get("Content-Type")).toBe("application/json");
+    expect(createHeaders.get("Prefer")).toBe("return=representation");
+    expect(JSON.parse(createInit.body as string)).toEqual(
+      expect.objectContaining({
+        user_id: lunaSession.userId,
+        name: "Nebula Shirt + Midnight Skirt",
+        generated_name: "Nebula Shirt + Midnight Skirt",
+        name_source: "generated",
+        top_garment_id: "garment-top-001",
+        bottom_garment_id: "garment-bottom-001",
+        dress_garment_id: null,
+        outerwear_garment_id: null,
+        shoes_garment_id: null,
+        accessory_garment_ids: [],
+      }),
+    );
+
+    const updated = await repository.updateOutfitRecord(lunaSession.userId, "outfit-001", {
+      name: "Moonlight Commute",
+      topGarmentId: "garment-top-001",
+      bottomGarmentId: "garment-bottom-001",
+      outerwearGarmentId: "garment-outerwear-001",
+      accessoryGarmentIds: [],
+    });
+
+    expect(updated).toMatchObject({
+      id: "outfit-001",
+      name: "Moonlight Commute",
+      generated_name: "Nebula Shirt + Midnight Skirt等3件",
+      name_source: "manual",
+      outerwear_garment_id: "garment-outerwear-001",
+    });
+
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      `https://supabase.example.test/rest/v1/outfits?id=eq.outfit-001&user_id=eq.${lunaSession.userId}&select=*&limit=1`,
+    );
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(
+      `https://supabase.example.test/rest/v1/garments?user_id=eq.${lunaSession.userId}&select=*&order=created_at.desc`,
+    );
+
+    const updateInit = fetchMock.mock.calls[4]?.[1] as RequestInit;
+    const updateHeaders = new Headers(updateInit.headers);
+    expect(fetchMock.mock.calls[4]?.[0]).toBe(
+      `https://supabase.example.test/rest/v1/outfits?id=eq.outfit-001&user_id=eq.${lunaSession.userId}&select=*`,
+    );
+    expect(updateInit.method).toBe("PATCH");
+    expect(updateHeaders.get("Content-Type")).toBe("application/json");
+    expect(updateHeaders.get("Prefer")).toBe("return=representation");
+
+    const loaded = await repository.getOutfitById(lunaSession.userId, "outfit-001");
+    expect(loaded).toMatchObject({
+      id: "outfit-001",
+      name: "Moonlight Commute",
+      name_source: "manual",
+    });
+    expect(fetchMock.mock.calls[5]?.[0]).toBe(
+      `https://supabase.example.test/rest/v1/outfits?id=eq.outfit-001&user_id=eq.${lunaSession.userId}&select=*&limit=1`,
+    );
+
+    const listed = await repository.listOutfits(lunaSession.userId);
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({
+      id: "outfit-001",
+      name: "Moonlight Commute",
+    });
+    expect(fetchMock.mock.calls[6]?.[0]).toBe(
+      `https://supabase.example.test/rest/v1/outfits?user_id=eq.${lunaSession.userId}&select=*&order=updated_at.desc`,
+    );
+
+    const deleted = await repository.deleteOutfitRecord(lunaSession.userId, "outfit-001");
+    expect(deleted).toMatchObject({
+      id: "outfit-001",
+      name: "Moonlight Commute",
+    });
+
+    const deleteInit = fetchMock.mock.calls[7]?.[1] as RequestInit;
+    const deleteHeaders = new Headers(deleteInit.headers);
+    expect(fetchMock.mock.calls[7]?.[0]).toBe(
+      `https://supabase.example.test/rest/v1/outfits?id=eq.outfit-001&user_id=eq.${lunaSession.userId}&select=*`,
+    );
+    expect(deleteInit.method).toBe("DELETE");
+    expect(deleteHeaders.get("Prefer")).toBe("return=representation");
+
+    await expect(repository.getOutfitById(lunaSession.userId, "missing-outfit")).resolves.toBeNull();
   });
 });

@@ -14,7 +14,7 @@ export function AppShell({ session, children }: AppShellProps) {
     repositoryMode === "supabase" ? "数据模式 · Supabase" : "数据模式 · 本地预设";
   const modeDescription =
     repositoryMode === "supabase"
-      ? "当前数据已经连接到 Supabase，衣物与图片都从远端仓储读取。"
+      ? "当前数据已经连接到 Supabase，衣物、搭配与图片都从远端仓储读取。"
       : "当前使用本地预设身份模式，适合开发和受控演示。";
 
   return (
@@ -44,6 +44,12 @@ export function AppShell({ session, children }: AppShellProps) {
                 className="rounded-full px-4 py-2 transition-colors hover:bg-[rgba(125,196,255,0.12)] hover:text-foreground-strong"
               >
                 衣橱
+              </Link>
+              <Link
+                href="/outfits"
+                className="rounded-full px-4 py-2 transition-colors hover:bg-[rgba(125,196,255,0.12)] hover:text-foreground-strong"
+              >
+                搭配
               </Link>
               <Link
                 href="/import"

@@ -30,7 +30,7 @@ export function EmptyState({
           {actionLabel}
         </Link>
         <span className="max-w-2xl text-sm leading-6 text-muted">
-          新衣物保存后会立即出现在当前身份的衣橱里，你可以继续进入详情页确认分类结果。
+          新记录保存后会立即出现在当前身份的工作区里，你可以继续进入详情页调整内容。
         </span>
       </div>
     </section>

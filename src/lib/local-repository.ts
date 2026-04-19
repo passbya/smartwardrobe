@@ -11,14 +11,25 @@ import path from "node:path";
 import { classifyGarmentByRules } from "@/lib/classification";
 import type { SmartWardrobeRepository } from "@/lib/data-repository";
 import {
+  createOutfitPersistencePayload,
+  type OutfitPersistencePayload,
+} from "@/lib/outfit-logic";
+import {
   getPresetIdentityBySlug,
   toUserSession,
 } from "@/lib/preset-identities";
-import type { GarmentInput, GarmentRecord, UserSession } from "@/lib/types";
+import type {
+  GarmentInput,
+  GarmentRecord,
+  OutfitInput,
+  OutfitRecord,
+  UserSession,
+} from "@/lib/types";
 import {
   extractUploadReference,
   getGarmentsPath,
   getJsonDataDir,
+  getOutfitsPath,
   getProfilesPath,
   getUploadsDir,
   resolveUploadFilePath,
@@ -29,6 +40,23 @@ type ProfileRecord = {
   id: string;
   display_name: string;
   is_demo: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+type RemoteGarmentRow = {
+  id: string;
+  user_id: string;
+  image_url: string;
+  name: string;
+  category: string | null;
+  subcategory: string;
+  color: string | null;
+  season: string | null;
+  brand: string | null;
+  notes: string | null;
+  source: string | null;
+  classification_source: "rule" | "manual" | null;
   created_at: string;
   updated_at: string;
 };
@@ -77,6 +105,7 @@ async function ensureDataStore() {
   await Promise.all([
     ensureJsonFile(getProfilesPath()),
     ensureJsonFile(getGarmentsPath()),
+    ensureJsonFile(getOutfitsPath()),
   ]);
 }
 
@@ -190,6 +219,80 @@ async function removeUploadFile(imageUrl: string) {
   }
 }
 
+async function getRemoteFallbackGarments(userId: string): Promise<GarmentRecord[]> {
+  const url = process.env.SUPABASE_URL?.trim()?.replace(/\/+$/, "");
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+
+  if (!url || !serviceRoleKey) {
+    return [];
+  }
+
+  const response = await fetch(
+    `${url}/rest/v1/garments?user_id=eq.${encodeURIComponent(userId)}&select=*&order=created_at.desc`,
+    {
+      cache: "no-store",
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const rows = (await response.json()) as RemoteGarmentRow[];
+  return rows.map((row) => ({
+    id: row.id,
+    user_id: row.user_id,
+    image_url: row.image_url,
+    name: row.name,
+    category: row.category ?? "",
+    subcategory: row.subcategory,
+    color: row.color ?? "",
+    season: row.season ?? "",
+    brand: row.brand ?? "",
+    notes: row.notes ?? "",
+    source: row.source ?? "manual_import",
+    classification_source: row.classification_source ?? "rule",
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }));
+}
+
+async function getAllGarments() {
+  return readJsonFile<GarmentRecord[]>(getGarmentsPath(), []);
+}
+
+async function getAllOutfits() {
+  return readJsonFile<OutfitRecord[]>(getOutfitsPath(), []);
+}
+
+function createOutfitRecordFromPayload(
+  payload: OutfitPersistencePayload,
+  outfitId: string,
+  userId: string,
+  createdAt: string,
+  updatedAt: string,
+): OutfitRecord {
+  return {
+    id: outfitId,
+    user_id: userId,
+    name: payload.name,
+    generated_name: payload.generatedName,
+    name_source: payload.nameSource,
+    top_garment_id: payload.topGarmentId || null,
+    bottom_garment_id: payload.bottomGarmentId || null,
+    dress_garment_id: payload.dressGarmentId || null,
+    outerwear_garment_id: payload.outerwearGarmentId || null,
+    shoes_garment_id: payload.shoesGarmentId || null,
+    accessory_garment_ids: payload.accessoryGarmentIds,
+    created_at: createdAt,
+    updated_at: updatedAt,
+  };
+}
+
 export function createLocalRepository(): SmartWardrobeRepository {
   return {
     async getOrCreatePresetProfile(slug: string): Promise<UserSession> {
@@ -227,7 +330,7 @@ export function createLocalRepository(): SmartWardrobeRepository {
 
     async listGarments(userId: string) {
       try {
-        const garments = await readJsonFile<GarmentRecord[]>(getGarmentsPath(), []);
+        const garments = await getAllGarments();
 
         return garments
           .filter((garment) => garment.user_id === userId)
@@ -239,7 +342,7 @@ export function createLocalRepository(): SmartWardrobeRepository {
 
     async getGarmentById(userId: string, garmentId: string) {
       try {
-        const garments = await readJsonFile<GarmentRecord[]>(getGarmentsPath(), []);
+        const garments = await getAllGarments();
 
         return (
           garments.find(
@@ -284,7 +387,7 @@ export function createLocalRepository(): SmartWardrobeRepository {
       imageUrl: string,
     ) {
       try {
-        const garments = await readJsonFile<GarmentRecord[]>(getGarmentsPath(), []);
+        const garments = await getAllGarments();
         const ruleMatch = classifyGarmentByRules(input.subcategory);
         const now = new Date().toISOString();
 
@@ -316,7 +419,7 @@ export function createLocalRepository(): SmartWardrobeRepository {
 
     async updateGarmentRecord(userId: string, garmentId: string, updates) {
       try {
-        const garments = await readJsonFile<GarmentRecord[]>(getGarmentsPath(), []);
+        const garments = await getAllGarments();
         const garmentIndex = garments.findIndex(
           (garment) => garment.user_id === userId && garment.id === garmentId,
         );
@@ -344,7 +447,7 @@ export function createLocalRepository(): SmartWardrobeRepository {
 
     async deleteGarmentRecord(userId: string, garmentId: string) {
       try {
-        const garments = await readJsonFile<GarmentRecord[]>(getGarmentsPath(), []);
+        const garments = await getAllGarments();
         const garmentIndex = garments.findIndex(
           (garment) => garment.user_id === userId && garment.id === garmentId,
         );
@@ -354,12 +457,154 @@ export function createLocalRepository(): SmartWardrobeRepository {
         }
 
         const [deletedGarment] = garments.splice(garmentIndex, 1);
+        const outfits = await getAllOutfits();
+        const remainingOutfits = outfits.filter(
+          (outfit) =>
+            outfit.user_id !== userId ||
+            ![
+              outfit.top_garment_id,
+              outfit.bottom_garment_id,
+              outfit.dress_garment_id,
+              outfit.outerwear_garment_id,
+              outfit.shoes_garment_id,
+              ...outfit.accessory_garment_ids,
+            ].includes(garmentId),
+        );
+
         await removeUploadFile(deletedGarment.image_url);
         await writeJsonFile(getGarmentsPath(), garments);
+
+        if (remainingOutfits.length !== outfits.length) {
+          await writeJsonFile(getOutfitsPath(), remainingOutfits);
+        }
 
         return deletedGarment;
       } catch (error) {
         throw createRepositoryError(`delete garment ${garmentId}`, error);
+      }
+    },
+
+    async listOutfits(userId: string) {
+      try {
+        const outfits = await getAllOutfits();
+
+        return outfits
+          .filter((outfit) => outfit.user_id === userId)
+          .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+      } catch (error) {
+        throw createRepositoryError("list outfits", error);
+      }
+    },
+
+    async getOutfitById(userId: string, outfitId: string) {
+      try {
+        const outfits = await getAllOutfits();
+
+        return (
+          outfits.find((outfit) => outfit.user_id === userId && outfit.id === outfitId) ??
+          null
+        );
+      } catch (error) {
+        throw createRepositoryError(`load outfit ${outfitId}`, error);
+      }
+    },
+
+    async createOutfitRecord(userId: string, input: OutfitInput) {
+      try {
+        const outfits = await getAllOutfits();
+        const garments = (await getAllGarments()).filter(
+          (garment) => garment.user_id === userId,
+        );
+        const availableGarments =
+          garments.length > 0 ? garments : await getRemoteFallbackGarments(userId);
+        const outfitId = randomUUID();
+        const now = new Date().toISOString();
+        let payload: OutfitPersistencePayload;
+
+        try {
+          payload = createOutfitPersistencePayload(availableGarments, input);
+        } catch (error) {
+          throw error;
+        }
+        const outfit = createOutfitRecordFromPayload(
+          payload,
+          outfitId,
+          userId,
+          now,
+          now,
+        );
+
+        outfits.push(outfit);
+        await writeJsonFile(getOutfitsPath(), outfits);
+
+        return outfit;
+      } catch (error) {
+        throw createRepositoryError("create outfit", error);
+      }
+    },
+
+    async updateOutfitRecord(userId: string, outfitId: string, input: OutfitInput) {
+      try {
+        const outfits = await getAllOutfits();
+        const outfitIndex = outfits.findIndex(
+          (outfit) => outfit.user_id === userId && outfit.id === outfitId,
+        );
+
+        if (outfitIndex === -1) {
+          return null;
+        }
+
+        const garments = (await getAllGarments()).filter(
+          (garment) => garment.user_id === userId,
+        );
+        const availableGarments =
+          garments.length > 0 ? garments : await getRemoteFallbackGarments(userId);
+        const existingOutfit = outfits[outfitIndex];
+        let payload: OutfitPersistencePayload;
+
+        try {
+          payload = createOutfitPersistencePayload(
+            availableGarments,
+            input,
+            existingOutfit,
+          );
+        } catch (error) {
+          throw error;
+        }
+        const updatedOutfit = createOutfitRecordFromPayload(
+          payload,
+          existingOutfit.id,
+          existingOutfit.user_id,
+          existingOutfit.created_at,
+          new Date().toISOString(),
+        );
+
+        outfits[outfitIndex] = updatedOutfit;
+        await writeJsonFile(getOutfitsPath(), outfits);
+
+        return updatedOutfit;
+      } catch (error) {
+        throw createRepositoryError(`update outfit ${outfitId}`, error);
+      }
+    },
+
+    async deleteOutfitRecord(userId: string, outfitId: string) {
+      try {
+        const outfits = await getAllOutfits();
+        const outfitIndex = outfits.findIndex(
+          (outfit) => outfit.user_id === userId && outfit.id === outfitId,
+        );
+
+        if (outfitIndex === -1) {
+          return null;
+        }
+
+        const [deletedOutfit] = outfits.splice(outfitIndex, 1);
+        await writeJsonFile(getOutfitsPath(), outfits);
+
+        return deletedOutfit;
+      } catch (error) {
+        throw createRepositoryError(`delete outfit ${outfitId}`, error);
       }
     },
   };

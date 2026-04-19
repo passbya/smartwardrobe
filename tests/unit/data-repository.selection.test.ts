@@ -28,6 +28,25 @@ const localRepository = {
     updated_at: "2026-01-01T00:00:00.000Z",
   })),
   updateGarmentRecord: vi.fn(async () => null),
+  listOutfits: vi.fn(async () => []),
+  getOutfitById: vi.fn(async () => null),
+  createOutfitRecord: vi.fn(async () => ({
+    id: "local-outfit",
+    user_id: lunaSession.userId,
+    name: "Local Outfit",
+    generated_name: "Local Outfit",
+    name_source: "generated",
+    top_garment_id: "garment-top-001",
+    bottom_garment_id: "garment-bottom-001",
+    dress_garment_id: null,
+    outerwear_garment_id: null,
+    shoes_garment_id: null,
+    accessory_garment_ids: [],
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  })),
+  updateOutfitRecord: vi.fn(async () => null),
+  deleteOutfitRecord: vi.fn(async () => null),
 };
 
 const supabaseRepository = {
@@ -54,6 +73,25 @@ const supabaseRepository = {
     updated_at: "2026-01-01T00:00:00.000Z",
   })),
   updateGarmentRecord: vi.fn(async () => null),
+  listOutfits: vi.fn(async () => []),
+  getOutfitById: vi.fn(async () => null),
+  createOutfitRecord: vi.fn(async () => ({
+    id: "supabase-outfit",
+    user_id: novaSession.userId,
+    name: "Supabase Outfit",
+    generated_name: "Supabase Outfit",
+    name_source: "generated",
+    top_garment_id: "garment-top-001",
+    bottom_garment_id: "garment-bottom-001",
+    dress_garment_id: null,
+    outerwear_garment_id: null,
+    shoes_garment_id: null,
+    accessory_garment_ids: [],
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  })),
+  updateOutfitRecord: vi.fn(async () => null),
+  deleteOutfitRecord: vi.fn(async () => null),
 };
 
 const createLocalRepository = vi.fn(() => localRepository);
@@ -188,5 +226,30 @@ describe("repository selection", () => {
       activeMode: "local",
     });
     expect(repositoryModule.getRepositoryStatus().fallbackReason).toBeTruthy();
+  });
+
+  it("forwards outfit CRUD to the selected repository implementation", async () => {
+    process.env.SUPABASE_URL = "https://supabase.example.test/";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
+
+    vi.resetModules();
+    repositoryModule = await import("@/lib/data-repository");
+
+    const repository = repositoryModule.getRepository();
+    const created = await repository.createOutfitRecord(novaSession.userId, {
+      topGarmentId: "garment-top-001",
+      bottomGarmentId: "garment-bottom-001",
+      accessoryGarmentIds: [],
+    });
+
+    expect(created).toMatchObject({
+      id: "supabase-outfit",
+      user_id: novaSession.userId,
+    });
+    expect(supabaseRepository.createOutfitRecord).toHaveBeenCalledWith(novaSession.userId, {
+      topGarmentId: "garment-top-001",
+      bottomGarmentId: "garment-bottom-001",
+      accessoryGarmentIds: [],
+    });
   });
 });

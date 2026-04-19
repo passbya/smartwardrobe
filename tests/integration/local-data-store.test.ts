@@ -10,6 +10,104 @@ import {
 
 type DataStoreModule = typeof import("@/lib/data-store");
 type UploadRouteModule = typeof import("@/app/api/uploads/[userId]/[fileName]/route");
+type OutfitEnabledDataStore = DataStoreModule & {
+  listOutfits(userId: string): Promise<
+    Array<{
+      id: string;
+      user_id: string;
+      name: string;
+      generated_name: string;
+      name_source: "generated" | "manual";
+      top_garment_id: string | null;
+      bottom_garment_id: string | null;
+      dress_garment_id: string | null;
+      outerwear_garment_id: string | null;
+      shoes_garment_id: string | null;
+      accessory_garment_ids: string[];
+      created_at: string;
+      updated_at: string;
+    }>
+  >;
+  getOutfitById(
+    userId: string,
+    outfitId: string,
+  ): Promise<{
+    id: string;
+    user_id: string;
+    name: string;
+    generated_name: string;
+    name_source: "generated" | "manual";
+    top_garment_id: string | null;
+    bottom_garment_id: string | null;
+    dress_garment_id: string | null;
+    outerwear_garment_id: string | null;
+    shoes_garment_id: string | null;
+    accessory_garment_ids: string[];
+    created_at: string;
+    updated_at: string;
+  } | null>;
+  createOutfitRecord(
+    userId: string,
+    input: {
+      name?: string;
+      topGarmentId?: string;
+      bottomGarmentId?: string;
+      dressGarmentId?: string;
+      outerwearGarmentId?: string;
+      shoesGarmentId?: string;
+      accessoryGarmentIds: string[];
+    },
+  ): Promise<{
+    id: string;
+    user_id: string;
+    name: string;
+    generated_name: string;
+    name_source: "generated" | "manual";
+    top_garment_id: string | null;
+    bottom_garment_id: string | null;
+    dress_garment_id: string | null;
+    outerwear_garment_id: string | null;
+    shoes_garment_id: string | null;
+    accessory_garment_ids: string[];
+    created_at: string;
+    updated_at: string;
+  }>;
+  updateOutfitRecord(
+    userId: string,
+    outfitId: string,
+    input: {
+      name?: string;
+      topGarmentId?: string;
+      bottomGarmentId?: string;
+      dressGarmentId?: string;
+      outerwearGarmentId?: string;
+      shoesGarmentId?: string;
+      accessoryGarmentIds: string[];
+    },
+  ): Promise<{
+    id: string;
+    user_id: string;
+    name: string;
+    generated_name: string;
+    name_source: "generated" | "manual";
+    top_garment_id: string | null;
+    bottom_garment_id: string | null;
+    dress_garment_id: string | null;
+    outerwear_garment_id: string | null;
+    shoes_garment_id: string | null;
+    accessory_garment_ids: string[];
+    created_at: string;
+    updated_at: string;
+  } | null>;
+  deleteOutfitRecord(
+    userId: string,
+    outfitId: string,
+  ): Promise<{
+    id: string;
+    user_id: string;
+    name: string;
+  } | null>;
+};
 
 function createUploadFile(name: string, contents = "image-bytes") {
   return {
@@ -305,5 +403,129 @@ describe("local data store flow", () => {
     ).resolves.toBeUndefined();
 
     await expect(dataStore.deleteGarmentRecord(irisSession.userId, "garment-001")).resolves.toBeNull();
+  });
+
+  it("persists outfit CRUD, generated naming, and identity isolation for manual combinations", async () => {
+    const outfitDataStore = dataStore as OutfitEnabledDataStore;
+    const uploadFile = createUploadFile("Outfit Source.png");
+
+    const lunaTopUrl = await dataStore.saveUpload(
+      lunaSession.userId,
+      "garment-top-001",
+      uploadFile,
+    );
+    const lunaBottomUrl = await dataStore.saveUpload(
+      lunaSession.userId,
+      "garment-bottom-001",
+      uploadFile,
+    );
+    const lunaOuterwearUrl = await dataStore.saveUpload(
+      lunaSession.userId,
+      "garment-outerwear-001",
+      uploadFile,
+    );
+    const novaDressUrl = await dataStore.saveUpload(
+      novaSession.userId,
+      "garment-dress-001",
+      uploadFile,
+    );
+
+    await dataStore.createGarmentRecord(
+      lunaSession.userId,
+      "garment-top-001",
+      {
+        name: "Nebula Shirt",
+        subcategory: "shirt",
+      },
+      lunaTopUrl,
+    );
+    await dataStore.createGarmentRecord(
+      lunaSession.userId,
+      "garment-bottom-001",
+      {
+        name: "Midnight Skirt",
+        subcategory: "skirt",
+      },
+      lunaBottomUrl,
+    );
+    await dataStore.createGarmentRecord(
+      lunaSession.userId,
+      "garment-outerwear-001",
+      {
+        name: "Aurora Coat",
+        subcategory: "coat",
+      },
+      lunaOuterwearUrl,
+    );
+    await dataStore.createGarmentRecord(
+      novaSession.userId,
+      "garment-dress-001",
+      {
+        name: "Nova Dress",
+        subcategory: "dress",
+      },
+      novaDressUrl,
+    );
+
+    const created = await outfitDataStore.createOutfitRecord(lunaSession.userId, {
+      topGarmentId: "garment-top-001",
+      bottomGarmentId: "garment-bottom-001",
+      accessoryGarmentIds: [],
+    });
+
+    expect(created).toMatchObject({
+      user_id: lunaSession.userId,
+      name: "Nebula Shirt + Midnight Skirt",
+      generated_name: "Nebula Shirt + Midnight Skirt",
+      name_source: "generated",
+      top_garment_id: "garment-top-001",
+      bottom_garment_id: "garment-bottom-001",
+      dress_garment_id: null,
+      accessory_garment_ids: [],
+    });
+
+    const updated = await outfitDataStore.updateOutfitRecord(lunaSession.userId, created.id, {
+      name: "Moonlight Commute",
+      topGarmentId: "garment-top-001",
+      bottomGarmentId: "garment-bottom-001",
+      outerwearGarmentId: "garment-outerwear-001",
+      accessoryGarmentIds: [],
+    });
+
+    expect(updated).toMatchObject({
+      id: created.id,
+      name: "Moonlight Commute",
+      generated_name: "Nebula Shirt + Midnight Skirt\u7b493\u4ef6",
+      name_source: "manual",
+      outerwear_garment_id: "garment-outerwear-001",
+    });
+
+    expect(await outfitDataStore.getOutfitById(lunaSession.userId, created.id)).toMatchObject({
+      id: created.id,
+      name: "Moonlight Commute",
+      name_source: "manual",
+    });
+    expect(await outfitDataStore.getOutfitById(novaSession.userId, created.id)).toBeNull();
+    expect((await outfitDataStore.listOutfits(lunaSession.userId)).map((outfit) => outfit.id)).toEqual([
+      created.id,
+    ]);
+    expect(await outfitDataStore.listOutfits(novaSession.userId)).toEqual([]);
+
+    const deleted = await outfitDataStore.deleteOutfitRecord(lunaSession.userId, created.id);
+
+    expect(deleted).toMatchObject({
+      id: created.id,
+      name: "Moonlight Commute",
+      user_id: lunaSession.userId,
+    });
+    expect(await outfitDataStore.getOutfitById(lunaSession.userId, created.id)).toBeNull();
+    expect(await dataStore.getGarmentById(lunaSession.userId, "garment-top-001")).toMatchObject({
+      id: "garment-top-001",
+      name: "Nebula Shirt",
+    });
+    expect(await dataStore.getGarmentById(novaSession.userId, "garment-dress-001")).toMatchObject({
+      id: "garment-dress-001",
+      name: "Nova Dress",
+    });
   });
 });

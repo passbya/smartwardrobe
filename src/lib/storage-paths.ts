@@ -28,6 +28,10 @@ export function getGarmentsPath() {
   return path.join(getJsonDataDir(), "garments.json");
 }
 
+export function getOutfitsPath() {
+  return path.join(getJsonDataDir(), "outfits.json");
+}
+
 export function isPathInside(parentPath: string, childPath: string) {
   const relativePath = path.relative(parentPath, childPath);
 

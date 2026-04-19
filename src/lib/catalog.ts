@@ -4,7 +4,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   bottoms: "下装",
   outerwear: "外套",
   dresses: "连衣裙",
-  shoes: "鞋履",
+  shoes: "鞋子",
   bags: "包袋",
   accessories: "配饰",
 };
@@ -36,7 +36,7 @@ export const CATEGORY_OPTIONS = [
   { value: "bottoms", label: "下装" },
   { value: "outerwear", label: "外套" },
   { value: "dresses", label: "连衣裙" },
-  { value: "shoes", label: "鞋履" },
+  { value: "shoes", label: "鞋子" },
   { value: "bags", label: "包袋" },
   { value: "accessories", label: "配饰" },
 ];

@@ -21,6 +21,38 @@ vi.mock("@/lib/classification", () => ({
 }));
 
 type DataStoreModule = typeof import("@/lib/data-store");
+type OutfitEnabledDataStore = DataStoreModule & {
+  listOutfits(userId: string): Promise<Array<{ id: string; user_id: string; name: string; generated_name: string; name_source: "generated" | "manual" }>>;
+  getOutfitById(
+    userId: string,
+    outfitId: string,
+  ): Promise<{ id: string; user_id: string; name: string; generated_name: string; name_source: "generated" | "manual" } | null>;
+  createOutfitRecord(
+    userId: string,
+    input: {
+      name?: string;
+      topGarmentId?: string;
+      bottomGarmentId?: string;
+      dressGarmentId?: string;
+      outerwearGarmentId?: string;
+      shoesGarmentId?: string;
+      accessoryGarmentIds: string[];
+    },
+  ): Promise<{ id: string; user_id: string; name: string; generated_name: string; name_source: "generated" | "manual" }>;
+  updateOutfitRecord(
+    userId: string,
+    outfitId: string,
+    input: {
+      name?: string;
+      topGarmentId?: string;
+      bottomGarmentId?: string;
+      dressGarmentId?: string;
+      outerwearGarmentId?: string;
+      shoesGarmentId?: string;
+      accessoryGarmentIds: string[];
+    },
+  ): Promise<{ id: string; user_id: string; name: string; generated_name: string; name_source: "generated" | "manual" } | null>;
+};
 
 function createUploadFile(name: string, contents = "image-bytes") {
   return {
@@ -175,5 +207,69 @@ describe("data store repository", () => {
       id: "garment-900",
       user_id: novaSession.userId,
     });
+  });
+
+  it("creates and updates manual outfits for the current preset identity", async () => {
+    const outfitDataStore = dataStore as OutfitEnabledDataStore;
+    const uploadFile = createUploadFile("Outfit Photo.png");
+
+    await dataStore.createGarmentRecord(
+      lunaSession.userId,
+      "garment-top-001",
+      {
+        name: "Nebula Shirt",
+        subcategory: "mocked-subcategory",
+      },
+      await dataStore.saveUpload(lunaSession.userId, "garment-top-001", uploadFile),
+    );
+    await dataStore.createGarmentRecord(
+      lunaSession.userId,
+      "garment-bottom-001",
+      {
+        name: "Midnight Skirt",
+        subcategory: "skirt",
+      },
+      await dataStore.saveUpload(lunaSession.userId, "garment-bottom-001", uploadFile),
+    );
+    await dataStore.createGarmentRecord(
+      novaSession.userId,
+      "garment-foreign-001",
+      {
+        name: "Foreign Coat",
+        subcategory: "coat",
+      },
+      await dataStore.saveUpload(novaSession.userId, "garment-foreign-001", uploadFile),
+    );
+
+    const created = await outfitDataStore.createOutfitRecord(lunaSession.userId, {
+      topGarmentId: "garment-top-001",
+      bottomGarmentId: "garment-bottom-001",
+      accessoryGarmentIds: [],
+    });
+
+    expect(created).toMatchObject({
+      user_id: lunaSession.userId,
+      name: "Nebula Shirt + Midnight Skirt",
+      generated_name: "Nebula Shirt + Midnight Skirt",
+      name_source: "generated",
+    });
+    expect(await outfitDataStore.getOutfitById(novaSession.userId, created.id)).toBeNull();
+
+    const updated = await outfitDataStore.updateOutfitRecord(lunaSession.userId, created.id, {
+      name: "Night Shift",
+      topGarmentId: "garment-top-001",
+      bottomGarmentId: "garment-bottom-001",
+      accessoryGarmentIds: [],
+    });
+
+    expect(updated).toMatchObject({
+      id: created.id,
+      name: "Night Shift",
+      generated_name: "Nebula Shirt + Midnight Skirt",
+      name_source: "manual",
+    });
+    expect((await outfitDataStore.listOutfits(lunaSession.userId)).map((outfit) => outfit.id)).toEqual([
+      created.id,
+    ]);
   });
 });

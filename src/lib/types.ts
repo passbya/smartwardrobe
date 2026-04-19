@@ -38,6 +38,45 @@ export type GarmentRecord = {
   updated_at: string;
 };
 
+export type OutfitSlotSelection = {
+  topGarmentId?: string;
+  bottomGarmentId?: string;
+  dressGarmentId?: string;
+  outerwearGarmentId?: string;
+  shoesGarmentId?: string;
+  accessoryGarmentIds: string[];
+};
+
+export type OutfitInput = OutfitSlotSelection & {
+  name?: string;
+};
+
+export type OutfitRecord = {
+  id: string;
+  user_id: string;
+  name: string;
+  generated_name: string;
+  name_source: "generated" | "manual";
+  top_garment_id: string | null;
+  bottom_garment_id: string | null;
+  dress_garment_id: string | null;
+  outerwear_garment_id: string | null;
+  shoes_garment_id: string | null;
+  accessory_garment_ids: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type ResolvedOutfitRecord = OutfitRecord & {
+  topGarment: GarmentRecord | null;
+  bottomGarment: GarmentRecord | null;
+  dressGarment: GarmentRecord | null;
+  outerwearGarment: GarmentRecord | null;
+  shoesGarment: GarmentRecord | null;
+  accessoryGarments: GarmentRecord[];
+  coverImageUrl: string;
+};
+
 export type ClassificationResult = {
   category: string;
   subcategory: string;

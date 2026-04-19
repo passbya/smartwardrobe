@@ -94,6 +94,127 @@ async function applySearch(page, value) {
   await page.waitForLoadState("networkidle");
 }
 
+async function firstExistingLocator(page, selectors) {
+  for (const selector of selectors) {
+    const locator = page.locator(selector);
+    if (await locatorExists(locator)) {
+      return locator.first();
+    }
+  }
+
+  return null;
+}
+
+async function expectRecommendedPlaceholder(page) {
+  const placeholder = await firstExistingLocator(page, [
+    '[data-testid="recommended-outfits-placeholder"]',
+    '[data-testid="outfits-recommendation-placeholder"]',
+    'section:has-text("推荐搭配"):has-text("Coming Soon")',
+    'section:has-text("推荐搭配"):has-text("coming soon")',
+    'text=推荐搭配',
+  ]);
+
+  if (!placeholder) {
+    throw new Error("Unable to find the outfits recommendation placeholder");
+  }
+}
+
+async function createOutfit(page, appUrl, outfit) {
+  await page.goto(`${appUrl}/outfits/new`, { waitUntil: "networkidle" });
+
+  const outfitForm = await firstExistingLocator(page, [
+    '[data-testid="outfit-form"]',
+    '[data-testid="outfit-editor-form"]',
+    'form:has(select[name="topGarmentId"])',
+  ]);
+
+  if (!outfitForm) {
+    throw new Error("Unable to find the outfit creation form");
+  }
+
+  const topSelect = await firstExistingLocator(page, [
+    'select[name="topGarmentId"]',
+    '[data-testid="outfit-slot-top"] select',
+  ]);
+  const bottomSelect = await firstExistingLocator(page, [
+    'select[name="bottomGarmentId"]',
+    '[data-testid="outfit-slot-bottom"] select',
+  ]);
+
+  if (!topSelect || !bottomSelect) {
+    throw new Error("Outfit creation form is missing top/bottom slot selectors");
+  }
+
+  await topSelect.selectOption({ label: outfit.topName });
+  await bottomSelect.selectOption({ label: outfit.bottomName });
+
+  const generatedName = await firstExistingLocator(page, [
+    '[data-testid="outfit-generated-name"]',
+    '[data-testid="generated-outfit-name"]',
+    '[data-testid="outfit-name-preview"]',
+  ]);
+
+  if (!generatedName) {
+    throw new Error("Unable to find the generated outfit name preview");
+  }
+
+  await generatedName.waitFor();
+  const previewText = (await generatedName.textContent())?.trim() ?? "";
+  if (!previewText.includes(outfit.topToken) || !previewText.includes(outfit.bottomToken)) {
+    throw new Error(`Unexpected generated outfit name preview: ${previewText}`);
+  }
+
+  const nameInput = await firstExistingLocator(page, [
+    'input[name="name"]',
+    '[data-testid="outfit-name-input"]',
+  ]);
+
+  if (!nameInput) {
+    throw new Error("Unable to find the outfit name input");
+  }
+
+  await nameInput.fill(outfit.manualName);
+
+  const submitButton = await firstExistingLocator(page, [
+    '[data-testid="outfit-form"] button[type="submit"]',
+    '[data-testid="outfit-editor-form"] button[type="submit"]',
+    'form button[type="submit"]',
+  ]);
+
+  if (!submitButton) {
+    throw new Error("Unable to find the outfit submit button");
+  }
+
+  await submitButton.click();
+  await page.waitForURL(/\/outfits\/(?!new(?:[/?]|$))[^/?]+/, { timeout: 60000 });
+  await page.waitForLoadState("networkidle");
+
+  const outfitId = /\/outfits\/([^/?]+)/.exec(page.url())?.[1];
+  if (!outfitId) {
+    throw new Error(`Unable to parse outfit id from ${page.url()}`);
+  }
+
+  return { outfitId, previewText };
+}
+
+async function deleteCurrentOutfit(page) {
+  page.once("dialog", (dialog) => dialog.accept());
+
+  const deleteButton = await firstExistingLocator(page, [
+    '[data-testid="delete-outfit-form"] button[type="submit"]',
+    'form:has-text("删除搭配") button[type="submit"]',
+    'button:has-text("删除搭配")',
+  ]);
+
+  if (!deleteButton) {
+    throw new Error("Unable to find the delete outfit control");
+  }
+
+  await deleteButton.click();
+  await page.waitForURL(/\/outfits\?deleted=1/, { timeout: 60000 });
+  await page.waitForLoadState("networkidle");
+}
+
 async function main() {
   const appUrl = process.env.APP_URL || "http://localhost:3000";
   const token = Date.now().toString(36);
@@ -118,6 +239,13 @@ async function main() {
     color: "red",
     brand: `Nova Brand ${token}`,
     notes: `nova-note-${token}`,
+  };
+  const fourthGarment = {
+    name: `Iris Shirt ${token}`,
+    subcategory: "shirt",
+    color: "white",
+    brand: `Iris Brand ${token}`,
+    notes: `iris-note-${token}`,
   };
 
   fs.writeFileSync(
@@ -144,8 +272,8 @@ async function main() {
       throw new Error(`Unexpected auto classification: ${autoCategory}/${autoSeason}`);
     }
 
-    await page.locator('select[name="category"]').selectOption("outerwear");
-    await page.locator('select[name="subcategory"]').selectOption("jacket");
+    await page.locator('select[name="category"]').selectOption("tops");
+    await page.locator('select[name="subcategory"]').selectOption("shirt");
     await page.locator('select[name="color"]').selectOption("black");
     await page.locator('select[name="season"]').selectOption("winter");
     await page.locator('textarea[name="notes"]').fill(`manual-note-${token}`);
@@ -153,6 +281,22 @@ async function main() {
     await page.waitForURL(/saved=1/);
 
     await importGarment(page, appUrl, uploadPath, secondGarment);
+    await importGarment(page, appUrl, uploadPath, thirdGarment);
+
+    const outfitManualName = `Moonlight Commute ${token}`;
+    const { outfitId } = await createOutfit(page, appUrl, {
+      topName: firstGarment.name,
+      bottomName: thirdGarment.name,
+      topToken: "Nebula Shirt",
+      bottomToken: "Nova Skirt",
+      manualName: outfitManualName,
+    });
+
+    await page.locator(`input[name="name"][value="${outfitManualName}"]`).waitFor();
+    await page.goto(`${appUrl}/outfits`, { waitUntil: "networkidle" });
+    await page.locator("article").filter({ hasText: outfitManualName }).first().waitFor();
+    await expectRecommendedPlaceholder(page);
+
     await page.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
 
     await applySearch(page, "Nebula Shirt");
@@ -201,23 +345,35 @@ async function main() {
           secondGarment.name,
           "Second primary garment leaked into the secondary identity wardrobe",
         );
+        await secondaryPage.goto(`${appUrl}/outfits`, { waitUntil: "networkidle" });
+        await expectRecommendedPlaceholder(secondaryPage);
+        await assertWardrobeDoesNotShow(
+          secondaryPage,
+          outfitManualName,
+          "Primary identity outfit leaked into the secondary identity outfits list",
+        );
 
-        await importGarment(secondaryPage, appUrl, uploadPath, thirdGarment);
+        await importGarment(secondaryPage, appUrl, uploadPath, fourthGarment);
         await secondaryPage.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
-        await secondaryPage.getByText(thirdGarment.name).waitFor();
+        await secondaryPage.getByText(fourthGarment.name).waitFor();
 
         await page.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
         await applySearch(page, token);
         await page.getByText(firstGarment.name).waitFor();
         await assertWardrobeDoesNotShow(
           page,
-          thirdGarment.name,
+          fourthGarment.name,
           "Secondary identity garment leaked into the primary identity wardrobe",
         );
       } finally {
         await secondaryContext.close();
       }
     }
+
+    await page.goto(`${appUrl}/outfits/${outfitId}`, { waitUntil: "networkidle" });
+    await deleteCurrentOutfit(page);
+    await assertWardrobeDoesNotShow(page, outfitManualName, "Deleted outfit is still visible in outfits list");
+    await expectRecommendedPlaceholder(page);
 
     page.once("dialog", (dialog) => dialog.accept());
     await page.goto(`${appUrl}/garment/${firstGarmentId}`, { waitUntil: "networkidle" });

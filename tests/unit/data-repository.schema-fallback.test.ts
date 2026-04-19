@@ -3,11 +3,29 @@ import { lunaSession } from "../helpers/preset-identity-fixtures";
 
 const createLocalRepository = vi.fn(() => ({
   getOrCreatePresetProfile: vi.fn(async () => lunaSession),
+  createOutfitRecord: vi.fn(async () => ({
+    id: "local-outfit",
+    user_id: lunaSession.userId,
+    name: "Local Outfit",
+    generated_name: "Local Outfit",
+    name_source: "generated",
+    top_garment_id: "garment-top-001",
+    bottom_garment_id: "garment-bottom-001",
+    dress_garment_id: null,
+    outerwear_garment_id: null,
+    shoes_garment_id: null,
+    accessory_garment_ids: [],
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  })),
 }));
 
 const createSupabaseRepository = vi.fn(() => ({
   getOrCreatePresetProfile: vi.fn(async () => {
     throw new Error('relation "profiles" does not exist');
+  }),
+  createOutfitRecord: vi.fn(async () => {
+    throw new Error('relation "outfits" does not exist');
   }),
 }));
 
