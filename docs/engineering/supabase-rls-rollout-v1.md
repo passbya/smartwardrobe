@@ -14,7 +14,7 @@ server-side `service_role` integration.
 
 ## Non-goals
 
-- Replace the current demo-session flow with Supabase Auth
+- Replace the current preset-identity session flow with Supabase Auth
 - Remove or weaken server-side `service_role` access
 - Add destructive delete policies for garments or storage objects
 
@@ -22,15 +22,14 @@ server-side `service_role` integration.
 
 Run this migration after the initial schema migration:
 
-- [20260418110000_enable_rls_and_storage_policies.sql](D:\whtFIle\codexProj\smartwardrobe\supabase\migrations\20260418110000_enable_rls_and_storage_policies.sql)
+- `supabase/migrations/20260418110000_enable_rls_and_storage_policies.sql`
 
 ## Important behavior
 
 - Current production code still uses `SUPABASE_SERVICE_ROLE_KEY` on the server.
 - Per Supabase behavior, `service_role` bypasses RLS.
 - `storage.objects` is managed by Supabase. Do not run `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY`; create bucket-scoped policies only.
-- That means this rollout is a security baseline for future authenticated
-  browser access, while remaining non-breaking for the current MVP.
+- This rollout is a security baseline for future authenticated browser access, while remaining non-breaking for the current preset-identity MVP.
 
 ## Rollout steps
 
@@ -42,7 +41,5 @@ Run this migration after the initial schema migration:
 
 ## Follow-up
 
-- When real Supabase Auth is introduced, create or sync `profiles.auth_user_id`
-  from the authenticated user id.
-- If browser-direct uploads are added later, write files under a first path
-  segment equal to `auth.uid()`.
+- When real Supabase Auth is introduced, create or sync `profiles.auth_user_id` from the authenticated user id.
+- If browser-direct uploads are added later, write files under a first path segment equal to `auth.uid()`.
