@@ -9,6 +9,9 @@ const PRESET_IDENTITIES = [
   { slug: "iris", displayName: "Iris" },
 ];
 
+const SMOKE_UPLOAD_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9p2G2WQAAAAASUVORK5CYII=";
+
 async function importGarment(page, appUrl, uploadPath, garment) {
   await page.goto(`${appUrl}/import`, { waitUntil: "networkidle" });
   await page.locator('input[type="file"]').setInputFiles(uploadPath);
@@ -215,10 +218,42 @@ async function deleteCurrentOutfit(page) {
   await page.waitForLoadState("networkidle");
 }
 
+async function deleteGarmentById(page, appUrl, garmentId) {
+  if (!garmentId) {
+    return false;
+  }
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.goto(`${appUrl}/garment/${garmentId}`, { waitUntil: "networkidle" });
+
+   if (page.url().includes("/login")) {
+    return false;
+  }
+
+  const deleteButton = await firstExistingLocator(page, [
+    '[data-testid="delete-garment-form"] button[type="submit"]',
+    "form:last-of-type button[type=\"submit\"]",
+    'button:has-text("删除")',
+  ]);
+
+  if (!deleteButton) {
+    return false;
+  }
+
+  await deleteButton.click();
+  try {
+    await page.waitForURL(/\/wardrobe\?deleted=1/, { timeout: 15000 });
+    await page.waitForLoadState("networkidle");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function main() {
   const appUrl = process.env.APP_URL || "http://localhost:3000";
   const token = Date.now().toString(36);
-  const uploadPath = path.join(os.tmpdir(), `smartwardrobe-upload-${token}.svg`);
+  const uploadPath = path.join(os.tmpdir(), `smartwardrobe-upload-${token}.png`);
   const firstGarment = {
     name: `Nebula Shirt ${token}`,
     subcategory: "shirt",
@@ -248,20 +283,23 @@ async function main() {
     notes: `iris-note-${token}`,
   };
 
-  fs.writeFileSync(
-    uploadPath,
-    `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="800" viewBox="0 0 640 800"><rect width="640" height="800" fill="#efe6da"/><rect x="180" y="140" width="280" height="520" rx="36" fill="#ffffff" stroke="#8f5b33" stroke-width="8"/><path d="M248 210c26-42 118-42 144 0l42 66-48 30-26-42v298H280V264l-26 42-48-30 42-66z" fill="#d7e7f7" stroke="#5f381a" stroke-width="6"/></svg>`,
-  );
+  fs.writeFileSync(uploadPath, Buffer.from(SMOKE_UPLOAD_PNG_BASE64, "base64"));
 
   const browser = await chromium.launch({ headless: true });
   const primaryContext = await browser.newContext();
   const page = await primaryContext.newPage();
+  let secondaryContext = null;
+  let secondaryPage = null;
+  let firstGarmentId = "";
+  let secondGarmentId = "";
+  let thirdGarmentId = "";
+  let fourthGarmentId = "";
 
   try {
     const loginMode = await loginWithIdentity(page, appUrl, PRESET_IDENTITIES[0]);
 
     await importGarment(page, appUrl, uploadPath, firstGarment);
-    const firstGarmentId = /\/garment\/([^?]+)/.exec(page.url())?.[1];
+    firstGarmentId = /\/garment\/([^?]+)/.exec(page.url())?.[1] ?? "";
     if (!firstGarmentId) {
       throw new Error(`Unable to parse first garment id from ${page.url()}`);
     }
@@ -281,7 +319,9 @@ async function main() {
     await page.waitForURL(/saved=1/);
 
     await importGarment(page, appUrl, uploadPath, secondGarment);
+    secondGarmentId = /\/garment\/([^?]+)/.exec(page.url())?.[1] ?? "";
     await importGarment(page, appUrl, uploadPath, thirdGarment);
+    thirdGarmentId = /\/garment\/([^?]+)/.exec(page.url())?.[1] ?? "";
 
     const outfitManualName = `Moonlight Commute ${token}`;
     const { outfitId } = await createOutfit(page, appUrl, {
@@ -329,45 +369,41 @@ async function main() {
     }
 
     if (loginMode !== "legacy-demo") {
-      const secondaryContext = await browser.newContext();
-      const secondaryPage = await secondaryContext.newPage();
+      secondaryContext = await browser.newContext();
+      secondaryPage = await secondaryContext.newPage();
+      await loginWithIdentity(secondaryPage, appUrl, PRESET_IDENTITIES[1]);
+      await secondaryPage.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
+      await assertWardrobeDoesNotShow(
+        secondaryPage,
+        firstGarment.name,
+        "Primary identity garment leaked into the secondary identity wardrobe",
+      );
+      await assertWardrobeDoesNotShow(
+        secondaryPage,
+        secondGarment.name,
+        "Second primary garment leaked into the secondary identity wardrobe",
+      );
+      await secondaryPage.goto(`${appUrl}/outfits`, { waitUntil: "networkidle" });
+      await expectRecommendedPlaceholder(secondaryPage);
+      await assertWardrobeDoesNotShow(
+        secondaryPage,
+        outfitManualName,
+        "Primary identity outfit leaked into the secondary identity outfits list",
+      );
 
-      try {
-        await loginWithIdentity(secondaryPage, appUrl, PRESET_IDENTITIES[1]);
-        await secondaryPage.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
-        await assertWardrobeDoesNotShow(
-          secondaryPage,
-          firstGarment.name,
-          "Primary identity garment leaked into the secondary identity wardrobe",
-        );
-        await assertWardrobeDoesNotShow(
-          secondaryPage,
-          secondGarment.name,
-          "Second primary garment leaked into the secondary identity wardrobe",
-        );
-        await secondaryPage.goto(`${appUrl}/outfits`, { waitUntil: "networkidle" });
-        await expectRecommendedPlaceholder(secondaryPage);
-        await assertWardrobeDoesNotShow(
-          secondaryPage,
-          outfitManualName,
-          "Primary identity outfit leaked into the secondary identity outfits list",
-        );
+      await importGarment(secondaryPage, appUrl, uploadPath, fourthGarment);
+      fourthGarmentId = /\/garment\/([^?]+)/.exec(secondaryPage.url())?.[1] ?? "";
+      await secondaryPage.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
+      await secondaryPage.getByText(fourthGarment.name).waitFor();
 
-        await importGarment(secondaryPage, appUrl, uploadPath, fourthGarment);
-        await secondaryPage.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
-        await secondaryPage.getByText(fourthGarment.name).waitFor();
-
-        await page.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
-        await applySearch(page, token);
-        await page.getByText(firstGarment.name).waitFor();
-        await assertWardrobeDoesNotShow(
-          page,
-          fourthGarment.name,
-          "Secondary identity garment leaked into the primary identity wardrobe",
-        );
-      } finally {
-        await secondaryContext.close();
-      }
+      await page.goto(`${appUrl}/wardrobe`, { waitUntil: "networkidle" });
+      await applySearch(page, token);
+      await page.getByText(firstGarment.name).waitFor();
+      await assertWardrobeDoesNotShow(
+        page,
+        fourthGarment.name,
+        "Secondary identity garment leaked into the primary identity wardrobe",
+      );
     }
 
     await page.goto(`${appUrl}/outfits/${outfitId}`, { waitUntil: "networkidle" });
@@ -375,11 +411,7 @@ async function main() {
     await assertWardrobeDoesNotShow(page, outfitManualName, "Deleted outfit is still visible in outfits list");
     await expectRecommendedPlaceholder(page);
 
-    page.once("dialog", (dialog) => dialog.accept());
-    await page.goto(`${appUrl}/garment/${firstGarmentId}`, { waitUntil: "networkidle" });
-    await page.locator("form").last().getByRole("button").click();
-    await page.waitForURL(/\/wardrobe\?deleted=1/);
-    await page.waitForLoadState("networkidle");
+    await deleteGarmentById(page, appUrl, firstGarmentId);
 
     await assertWardrobeDoesNotShow(page, firstGarment.name, "Deleted garment is still visible in wardrobe");
     await page.getByText(secondGarment.name).waitFor();
@@ -391,6 +423,36 @@ async function main() {
 
     console.log("BROWSER_SMOKE_OK");
   } finally {
+    try {
+      if (thirdGarmentId) {
+        await deleteGarmentById(page, appUrl, thirdGarmentId);
+      }
+    } catch {}
+
+    try {
+      if (secondGarmentId) {
+        await deleteGarmentById(page, appUrl, secondGarmentId);
+      }
+    } catch {}
+
+    try {
+      if (firstGarmentId) {
+        await deleteGarmentById(page, appUrl, firstGarmentId);
+      }
+    } catch {}
+
+    try {
+      if (secondaryPage && fourthGarmentId) {
+        await deleteGarmentById(secondaryPage, appUrl, fourthGarmentId);
+      }
+    } catch {}
+
+    try {
+      if (secondaryContext) {
+        await secondaryContext.close();
+      }
+    } catch {}
+
     await primaryContext.close();
     await browser.close();
     try {
