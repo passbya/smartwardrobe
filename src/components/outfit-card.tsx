@@ -1,3 +1,5 @@
+import { deleteOutfitAction } from "@/app/actions";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import Link from "next/link";
 import { OutfitCollage, getOutfitDisplayItems } from "@/components/outfit-collage";
 import { getOutfitSummary } from "@/lib/outfit-logic";
@@ -19,11 +21,12 @@ function formatUpdateLabel(updatedAt: string) {
 export function OutfitCard({ outfit }: OutfitCardProps) {
   const summary = getOutfitSummary(outfit).slice(0, 4);
   const displayItems = getOutfitDisplayItems(outfit);
+  const outfitHref = `/outfits/${outfit.id}`;
 
   return (
     <article className="group page-fade-in overflow-hidden rounded-[2rem] border border-line/80 bg-[rgba(10,19,35,0.62)] shadow-[0_22px_48px_rgba(0,0,0,0.3)] transition duration-300 hover:-translate-y-1 hover:border-[rgba(173,203,255,0.28)] hover:shadow-[0_28px_62px_rgba(35,79,155,0.24)]">
       <Link
-        href={`/outfits/${outfit.id}`}
+        href={outfitHref}
         className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(125,196,255,0.64)] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgba(10,19,35,0.62)]"
       >
         <div className="relative overflow-hidden bg-[linear-gradient(180deg,#11203a,#0b1628)] p-4">
@@ -71,6 +74,25 @@ export function OutfitCard({ outfit }: OutfitCardProps) {
               {item}
             </span>
           ))}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+          <Link href={outfitHref} className="secondary-button">
+            查看详情
+          </Link>
+
+          <form
+            action={deleteOutfitAction.bind(null, outfit.id)}
+            data-testid={`delete-outfit-card-form-${outfit.id}`}
+          >
+            <input type="hidden" name="redirectTo" value="/outfits" />
+            <ConfirmSubmitButton
+              className="secondary-button border-[rgba(255,159,177,0.18)] text-danger hover:bg-[rgba(255,159,177,0.08)]"
+              confirmMessage={`确认删除“${outfit.name}”吗？这不会删除底层衣物。`}
+            >
+              删除搭配
+            </ConfirmSubmitButton>
+          </form>
         </div>
       </div>
     </article>
